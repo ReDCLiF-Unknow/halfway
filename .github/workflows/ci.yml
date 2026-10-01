@@ -87,7 +87,10 @@ jobs:
           curl -sf http://localhost:8080/manifest.webmanifest > /dev/null
           curl -sf http://localhost:8080/static/icon-192.png > /dev/null
           curl -sf http://localhost:8080/static/vendor/tabler.min.css > /dev/null
-          docker logs halfway-test 2>&1 | grep -q "times are in Europe/Berlin" || {
+          # Saved first and then searched: grep -q stops reading at the first
+          # match, and under pipefail the writer it cut off fails the step.
+          docker logs halfway-test > logs.txt 2>&1
+          grep -q "times are in Europe/Berlin" logs.txt || {
             echo "::error::the container ignored TZ"
             docker logs halfway-test
             exit 1
@@ -103,7 +106,8 @@ jobs:
             */polls/*) ;;
             *) echo "::error::making a poll did not lead to it: $poll"; docker logs halfway-test; exit 1 ;;
           esac
-          curl -sf -b "$jar" "${poll%#*}" | grep -q "Smoke test"
+          curl -sf -b "$jar" -o page.html "${poll%#*}"
+          grep -q "Smoke test" page.html
           echo "the image starts and serves the app"
 
           # It should also stop when asked. An event stream is a response that
@@ -119,7 +123,8 @@ jobs:
             docker logs halfway-test
             exit 1
           fi
-          docker logs halfway-test 2>&1 | grep -q "^.*stopped$" || {
+          docker logs halfway-test > logs.txt 2>&1
+          grep -q "stopped$" logs.txt || {
             echo "::error::it was killed rather than shutting down cleanly"
             docker logs halfway-test
             exit 1
