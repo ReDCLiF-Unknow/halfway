@@ -1,0 +1,18 @@
+services:
+  halfway:
+    # Use the published image, or swap for `build: .` to build from this checkout.
+    image: ghcr.io/redclif-unknow/halfway:latest
+    container_name: halfway
+    ports:
+      - "8080:8080"
+    volumes:
+      - halfway-data:/data
+    environment:
+      # The time zone every poll's times are in.
+      TZ: Europe/Berlin
+      # Optional: a token from @BotFather, to post decisions into Telegram groups.
+      # HALFWAY_TELEGRAM_TOKEN: "123456:ABC..."
+    restart: unless-stopped
+
+volumes:
+  halfway-data:

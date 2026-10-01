@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{.Title}} · Halfway</title>
+  {{with .OG}}
+  <!-- What a chat app shows when the link is pasted into it: the poll, and
+       how it stands right now. Posting the link again shows the result. -->
+  <meta property="og:site_name" content="Halfway">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{.Title}}">
+  <meta property="og:description" content="{{.Description}}">
+  <meta property="og:url" content="{{.URL}}">
+  <meta name="description" content="{{.Description}}">
+  {{end}}
+  {{template "assets"}}
+</head>
+<body>
+<div class="page page-center">
+  <div class="container container-tight py-4">
+    <div class="text-center mb-4">
+      <span class="avatar avatar-lg bg-primary text-white"><i class="ti ti-arrows-join fs-1"></i></span>
+      <div class="h1 mt-3 mb-0">Halfway</div>
+    </div>
+
+    <div class="card card-md">
+      <div class="card-body">
+        <h2 class="h2 text-center mb-1">{{.Heading}}</h2>
+        <p class="text-secondary text-center mb-4">{{.Subtitle}}</p>
+        {{with .Invite}}{{$c := cat .Category}}
+        <!-- The poll the link is for -->
+        <div class="d-flex align-items-center gap-3 p-3 mb-4 rounded border">
+          <span class="avatar bg-{{$c.Color}}-lt text-{{$c.Color}}"><i class="ti ti-{{$c.Icon}} fs-2"></i></span>
+          <div class="flex-fill" style="min-width:0">
+            <div class="fw-bold text-truncate">{{.Title}}</div>
+            <div class="small text-secondary">{{.Status}}</div>
+          </div>
+          {{with .People}}
+          <span class="avatar-list avatar-list-stacked">
+            {{range .}}<span class="avatar avatar-sm rounded-circle bg-{{color .ID}}-lt" title="{{.Name}}">{{initial .Name}}</span>{{end}}
+          </span>
+          {{end}}
+        </div>
+        {{end}}
+        {{if .Error}}<div class="alert alert-danger" role="alert">{{.Error}}</div>{{end}}
+        {{if .Action}}
+        <form method="post" action="{{.Action}}">
+          {{if .NeedName}}
+          <div class="mb-3">
+            <label class="form-label" for="name">Your name</label>
+            <input id="name" type="text" name="name" class="form-control" placeholder="e.g. Alex" required maxlength="40" autofocus autocomplete="nickname">
+          </div>
+          {{end}}
+          <input type="hidden" name="next" value="{{.Next}}">
+          <button type="submit" class="btn btn-primary w-100">{{.Button}}</button>
+        </form>
+        {{else}}
+        <a href="/" class="btn w-100">Go to Halfway</a>
+        {{end}}
+      </div>
+    </div>
+
+    {{if .ShowToken}}
+    <details class="text-center text-secondary mt-3">
+      <summary class="small" style="cursor:pointer">Already use Halfway on another device?</summary>
+      <form method="post" action="/welcome/token" class="mt-2">
+        <input type="hidden" name="next" value="{{.Next}}">
+        <div class="input-group">
+          <input type="text" name="token" class="form-control" placeholder="Paste your sign-in key (from your profile)" required autocomplete="off">
+          <button class="btn" type="submit">Sign in</button>
+        </div>
+      </form>
+    </details>
+    {{end}}
+  </div>
+</div>
+</body>
+</html>

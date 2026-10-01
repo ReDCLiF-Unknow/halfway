@@ -1,0 +1,1083 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{with .UnseenCount}}({{.}}) {{end}}{{if eq .View "answer"}}To answer · {{else if eq .View "new"}}New poll · {{else}}{{with .Poll}}{{.Title}} · {{end}}{{end}}Halfway</title>
+  {{template "assets"}}
+</head>
+<body>
+<div class="page">
+
+  <!-- Sidebar -->
+  <aside class="navbar navbar-vertical navbar-expand-lg">
+    <div class="container-fluid">
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar-menu" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <h1 class="navbar-brand navbar-brand-autodark">
+        <a href="/" class="d-flex align-items-center text-decoration-none">
+          <span class="avatar avatar-sm bg-primary text-white me-2"><i class="ti ti-arrows-join"></i></span>
+          <span class="fw-bold">Halfway</span>
+        </a>
+      </h1>
+      <div class="collapse navbar-collapse" id="sidebar-menu">
+        <ul class="navbar-nav pt-lg-3">
+          <li class="nav-item">
+            <a class="nav-link{{if eq .View "dashboard"}} active{{end}}" href="/">
+              <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-layout-dashboard"></i></span>
+              <span class="nav-link-title">My polls</span>
+              <span class="ms-auto" data-live="news-badge">{{if .UnseenCount}}<span class="badge bg-blue-lt text-blue" title="{{plural .UnseenCount "decision"}} you haven't seen">{{.UnseenCount}} new</span>{{end}}</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link{{if eq .View "answer"}} active{{end}}" href="/answer">
+              <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-hand-finger"></i></span>
+              <span class="nav-link-title">To answer</span>
+              <span class="ms-auto" data-live="answer-badge">{{if .ToAnswerCount}}<span class="badge bg-orange-lt text-orange">{{.ToAnswerCount}}</span>{{end}}</span>
+            </a>
+          </li>
+        </ul>
+
+        <div class="px-3 mt-3 mb-1">
+          <div class="d-flex align-items-center">
+            <div class="text-uppercase text-secondary small fw-bold flex-fill">Polls</div>
+            <a href="/new" class="btn btn-icon btn-sm sidebar-add{{if eq .View "new"}} active{{end}}" title="New poll" aria-label="New poll"><i class="ti ti-plus"></i></a>
+          </div>
+        </div>
+
+        <ul class="navbar-nav" data-live="sidebar-polls">
+          {{range .Sidebar}}{{$c := cat .Category}}
+          <li class="nav-item">
+            <a class="nav-link{{if and $.Poll (eq $.Poll.ID .ID)}} active{{end}}" href="/polls/{{.ID}}">
+              <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-{{$c.Icon}}"></i></span>
+              <span class="nav-link-title text-truncate">{{.Title}}</span>
+              <span class="ms-auto d-flex align-items-center gap-2">
+                {{if .Unseen}}<span class="unread-dot" title="Decided since you last looked"></span>{{end}}
+                {{if and .IsOpen (not .Mine)}}<span class="badge bg-orange-lt text-orange" title="You haven't answered">!</span>
+                {{else if .IsOpen}}<span class="badge bg-blue-lt text-blue" title="{{.Answered}} of {{.People}} answered">{{.Answered}}/{{.People}}</span>
+                {{else}}<i class="ti ti-circle-check-filled text-green" title="On: {{label .Chosen}}"></i>{{end}}
+              </span>
+            </a>
+          </li>
+          {{else}}
+          <li class="nav-item"><span class="nav-link text-secondary small">Nothing coming up</span></li>
+          {{end}}
+        </ul>
+
+        <a href="#profile-modal" class="sidebar-user d-flex align-items-center text-decoration-none text-reset mt-auto pt-3 pb-1 px-3" data-bs-toggle="modal" title="Your profile" id="profile-open">
+          <span class="d-flex align-items-center flex-fill" style="min-width:0" data-live="me-chip">
+            <span class="avatar avatar-sm rounded-circle bg-{{color .User.ID}}-lt me-2">{{initial .User.Name}}</span>
+            <span class="flex-fill text-truncate">{{.User.Name}}</span>
+          </span>
+          <i class="ti ti-settings text-secondary"></i>
+        </a>
+      </div>
+    </div>
+  </aside>
+
+  <div class="page-wrapper">
+
+    <!-- Header -->
+    <div class="page-header d-print-none">
+      <div class="container-xl">
+        <div class="row g-2 align-items-center" data-live="header">
+          <!-- On phones the title gets its own row, so long names aren't squeezed by the buttons -->
+          <div class="col-12 col-sm">
+            {{if eq .View "answer"}}
+              <div class="page-pretitle">Polls you're on</div>
+              <h2 class="page-title">Waiting for your answer</h2>
+            {{else if eq .View "new"}}
+              <div class="page-pretitle">Plan something</div>
+              <h2 class="page-title">New poll</h2>
+            {{else if .Poll}}{{$c := cat .Poll.Category}}
+              <div class="page-pretitle"><i class="ti ti-{{$c.Icon}} me-1"></i>{{$c.Name}}{{with .People}} · {{plural (len .) "person"}}{{end}}</div>
+              {{if .IsOrganizer}}
+              <div class="page-title-wrap" data-edit-scope>
+                <h2 class="page-title d-flex align-items-center" data-edit-view>
+                  <span class="text-truncate">{{.Poll.Title}}</span>
+                  <button type="button" class="btn btn-icon btn-sm btn-ghost-secondary ms-2 rename-btn" data-edit-toggle title="Rename poll" aria-label="Rename poll"><i class="ti ti-pencil"></i></button>
+                </h2>
+                <form method="post" action="/polls/{{.Poll.ID}}/rename" data-inplace data-edit-form>
+                  <input type="hidden" name="next" value="{{.Path}}">
+                  <div class="input-group">
+                    <input type="text" name="title" class="form-control" value="{{.Poll.Title}}" required maxlength="80" aria-label="Poll name">
+                    <button class="btn btn-primary" type="submit">Save</button>
+                    <button class="btn btn-icon" type="button" data-edit-toggle title="Cancel" aria-label="Cancel"><i class="ti ti-x"></i></button>
+                  </div>
+                </form>
+              </div>
+              {{else}}
+              <h2 class="page-title"><span class="text-truncate">{{.Poll.Title}}</span></h2>
+              {{end}}
+            {{else}}
+              <div class="page-pretitle">Dashboard</div>
+              <h2 class="page-title">My polls</h2>
+            {{end}}
+          </div>
+          <div class="col-12 col-sm-auto ms-sm-auto d-flex align-items-center gap-2">
+            {{with .Poll}}
+              <a href="#share-modal" class="d-none d-md-flex text-decoration-none me-1" data-bs-toggle="modal" title="Who's on this poll">
+                <span class="avatar-list avatar-list-stacked">
+                  {{range $.People}}<span class="avatar avatar-sm rounded-circle bg-{{color .ID}}-lt" title="{{.Name}}">{{initial .Name}}</span>{{end}}
+                </span>
+              </a>
+              <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#share-modal"><i class="ti ti-user-plus me-1"></i>Invite</button>
+              {{if $.IsOrganizer}}
+              <div class="dropdown">
+                <button type="button" class="btn btn-icon" data-bs-toggle="dropdown" aria-expanded="false" title="More" aria-label="More actions"><i class="ti ti-dots"></i></button>
+                <div class="dropdown-menu dropdown-menu-end">
+                  {{if .IsOpen}}
+                  <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#settings-modal"><i class="ti ti-adjustments-horizontal me-2"></i>Deadline and minimum</button>
+                  <form method="post" action="/polls/{{.ID}}/decide" data-inplace onsubmit="return confirm('Decide now, as if the deadline had passed? Nobody can answer after this.')">
+                    <input type="hidden" name="next" value="{{$.Path}}">
+                    <button class="dropdown-item" type="submit"><i class="ti ti-gavel me-2"></i>Decide now</button>
+                  </form>
+                  <div class="dropdown-divider"></div>
+                  {{end}}
+                  <form method="post" action="/polls/{{.ID}}/delete" onsubmit="return confirm('Delete this poll for everyone on it? You can undo this for a day.')">
+                    <button class="dropdown-item text-danger" type="submit"><i class="ti ti-trash me-2"></i>Delete poll</button>
+                  </form>
+                </div>
+              </div>
+              {{end}}
+            {{else}}
+              {{if ne $.View "new"}}<a class="btn btn-primary" href="/new"><i class="ti ti-plus me-1"></i>New poll</a>{{end}}
+            {{end}}
+            <button class="btn btn-icon ms-auto ms-sm-0" type="button" id="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+              <i class="ti ti-moon icon-to-dark"></i><i class="ti ti-sun icon-to-light"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div class="container-xl">
+
+      <!-- There are no passwords, so the key is the only way back in. Say so
+           until they tell us they have it somewhere. -->
+      <div data-live="key-banner">
+      {{if not .User.TokenSaved}}
+      <div class="alert alert-info d-flex flex-wrap align-items-center gap-3 page-banner" role="status">
+        <i class="ti ti-key fs-2"></i>
+        <div class="flex-fill">
+          <strong>Save your sign-in key.</strong>
+          It is the only way back to your polls. Clear your browser's data without it and your name is gone
+          from this browser: there is no password to reset and no email to send.
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#profile-modal">
+            <i class="ti ti-eye me-1"></i>Show it
+          </button>
+          <form method="post" action="/me/token/saved" data-inplace data-toast="Reminder dismissed">
+            <input type="hidden" name="next" value="{{.Path}}">
+            <button class="btn btn-info" type="submit"><i class="ti ti-check me-1"></i>I've saved it</button>
+          </form>
+        </div>
+      </div>
+      {{end}}
+      </div>
+
+      {{if eq .View "answer"}}
+        <!-- Every open poll still waiting to hear from you -->
+        <div data-live="answer">
+          <div class="card">
+            {{if .ToAnswer}}
+            <div class="list-group list-group-flush">
+              {{range .ToAnswer}}{{$c := cat .Category}}
+              <a href="/polls/{{.ID}}" class="list-group-item list-group-item-action">
+                <div class="row align-items-center g-3">
+                  <div class="col-auto"><span class="avatar bg-{{$c.Color}}-lt text-{{$c.Color}}"><i class="ti ti-{{$c.Icon}} fs-2"></i></span></div>
+                  <div class="col" style="min-width:0">
+                    <div class="fw-medium text-truncate">{{.Title}}</div>
+                    <div class="small text-secondary">Decides {{label .Deadline}} ({{until .Deadline $.Now}}) · {{.Answered}} of {{.People}} answered{{if .Quorum}} · on if {{.Quorum}} can come{{end}}</div>
+                  </div>
+                  <div class="col-auto"><span class="btn btn-sm btn-primary">Answer<i class="ti ti-chevron-right ms-1"></i></span></div>
+                </div>
+              </a>
+              {{end}}
+            </div>
+            {{else}}
+            <div class="card-body">
+              <div class="empty">
+                <div class="empty-icon"><i class="ti ti-mood-smile fs-1"></i></div>
+                <p class="empty-title">You're all caught up</p>
+                <p class="empty-subtitle text-secondary">Polls people invite you to show up here until you've said when you can make it.</p>
+              </div>
+            </div>
+            {{end}}
+          </div>
+        </div>
+
+      {{else if eq .View "new"}}
+        <!-- A new poll: what, which times, and how it is decided -->
+        <div class="row row-cards">
+          <div class="col-lg-8">
+            <form method="post" action="/polls" class="card" id="new-poll-form">
+              <div class="card-body">
+                {{with .Error}}<div class="alert alert-danger" role="alert">{{.}}</div>{{end}}
+                <div class="mb-4">
+                  <label class="form-label" for="poll-title">What's the plan?</label>
+                  <div class="input-icon">
+                    <span class="input-icon-addon"><i class="ti ti-pencil"></i></span>
+                    <input id="poll-title" type="text" name="title" class="form-control" value="{{.Form.Title}}" placeholder="e.g. Friday dinner" required maxlength="80" autocomplete="off">
+                  </div>
+                </div>
+
+                <div class="mb-4">
+                  <div class="form-label">What kind?</div>
+                  <div class="form-selectgroup category-pick">
+                    {{range categories}}{{$c := cat .}}
+                    <label class="form-selectgroup-item">
+                      <input type="radio" name="category" value="{{.}}" class="form-selectgroup-input"{{if eq . $.Form.Category}} checked{{end}}>
+                      <span class="form-selectgroup-label"><i class="ti ti-{{$c.Icon}}"></i>{{$c.Name}}</span>
+                    </label>
+                    {{end}}
+                  </div>
+                </div>
+
+                <div class="mb-4">
+                  <label class="form-label">When could it be?</label>
+                  <!-- Without scripts: a box per time. With them, the calendar
+                       below takes these over and this goes away. -->
+                  <div id="slot-fallback">
+                    <div class="form-hint mb-2">Up to 8 times. Everyone says <strong>Yes</strong>, <strong>If needed</strong> or <strong>No</strong> to each.</div>
+                    {{range .Form.Slots}}
+                    <div class="input-group mb-2">
+                      <span class="input-group-text"><i class="ti ti-calendar-event"></i></span>
+                      <input type="datetime-local" name="slot" class="form-control" value="{{.}}" aria-label="A time it could be">
+                    </div>
+                    {{end}}
+                  </div>
+                  <!-- Pick a time, then tap days: each tap adds that day at that
+                       time, and tapping it again takes it off. -->
+                  <div id="slot-picker" class="d-none">
+                    <div class="form-hint mb-2">Pick a time, then tap the days it could be. Tap a day again to take it off. Up to 8.</div>
+                    <div class="row g-3">
+                      <div class="col-md-7">
+                        <div class="cal">
+                          <div class="d-flex align-items-center mb-2">
+                            <button type="button" class="btn btn-icon btn-sm btn-ghost-secondary" data-cal-prev title="Previous month" aria-label="Previous month"><i class="ti ti-chevron-left"></i></button>
+                            <div class="flex-fill text-center fw-bold" data-cal-title aria-live="polite"></div>
+                            <button type="button" class="btn btn-icon btn-sm btn-ghost-secondary" data-cal-next title="Next month" aria-label="Next month"><i class="ti ti-chevron-right"></i></button>
+                          </div>
+                          <div class="cal-grid" data-cal-days></div>
+                        </div>
+                      </div>
+                      <div class="col-md-5">
+                        <div class="small fw-medium mb-1"><i class="ti ti-clock me-1"></i>At</div>
+                        <div class="d-flex flex-wrap gap-1" data-times role="group" aria-label="Time of day">
+                          {{range $t := slotTimes}}<button type="button" class="btn btn-sm time-chip" data-time="{{$t}}" aria-pressed="false">{{$t}}</button>{{end}}
+                          <input type="time" class="form-control form-control-sm time-other" data-time-other aria-label="Another time" title="Another time">
+                        </div>
+                        <div class="small fw-medium mt-3 mb-1 d-flex">Chosen<span class="ms-auto text-secondary fw-normal" data-count></span></div>
+                        <div class="d-flex flex-column gap-1" data-chosen></div>
+                        <div class="text-secondary small" data-chosen-empty>Nothing yet: tap a day in the calendar.</div>
+                        <div class="text-danger small mt-1 d-none" data-slot-error role="alert"></div>
+                      </div>
+                    </div>
+                    <div data-slot-values></div>
+                  </div>
+                </div>
+
+                <div class="row g-3">
+                  <div class="col-md-7">
+                    <label class="form-label" for="poll-deadline">Decide by</label>
+                    <!-- Quick choices, counted back from the first time; "Pick"
+                         shows the box. Without scripts, just the box. -->
+                    <div class="d-none flex-wrap gap-1 mb-2" id="deadline-quick" role="group" aria-label="When it decides">
+                      <button type="button" class="btn btn-sm time-chip" data-before="1">A day before</button>
+                      <button type="button" class="btn btn-sm time-chip" data-before="2">2 days before</button>
+                      <button type="button" class="btn btn-sm time-chip" data-before="7">A week before</button>
+                      <button type="button" class="btn btn-sm time-chip" data-before="custom"><i class="ti ti-pencil me-1"></i>Pick</button>
+                    </div>
+                    <input id="poll-deadline" type="datetime-local" name="deadline" class="form-control" value="{{.Form.Deadline}}">
+                    <div class="form-hint" data-deadline-hint>Leave it empty for a day before the first time. Then Halfway picks the time most people said yes to.</div>
+                  </div>
+                  <div class="col-md-5">
+                    <label class="form-label" for="poll-quorum">Only if at least</label>
+                    <div class="input-group">
+                      <input id="poll-quorum" type="number" name="quorum" class="form-control" value="{{.Form.Quorum}}" min="2" max="100" placeholder="anyone">
+                      <span class="input-group-text">can come</span>
+                    </div>
+                    <div class="form-hint">Optional. As soon as this many can make one time, it's on. If no time gets there by the deadline, it's off.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="card-footer d-flex align-items-center">
+                <span class="text-secondary small d-none d-sm-inline">Next, you get a link to send to everyone.</span>
+                <button type="submit" class="btn btn-primary ms-auto"><i class="ti ti-send me-1"></i>Create poll</button>
+              </div>
+            </form>
+          </div>
+          <div class="col-lg-4">
+            <div class="card">
+              <div class="card-header"><h3 class="card-title">How it decides</h3></div>
+              <div class="card-body">
+                <div class="how-step">
+                  <span class="avatar avatar-sm bg-blue-lt text-blue"><i class="ti ti-link"></i></span>
+                  <div><strong>Send the link.</strong> <span class="text-secondary">People type their name once and answer each time. No accounts, no email.</span></div>
+                </div>
+                <div class="how-step">
+                  <span class="avatar avatar-sm bg-green-lt text-green"><i class="ti ti-users"></i></span>
+                  <div><strong>Enough can come?</strong> <span class="text-secondary">With a minimum, it's on the moment one time has that many.</span></div>
+                </div>
+                <div class="how-step">
+                  <span class="avatar avatar-sm bg-orange-lt text-orange"><i class="ti ti-hourglass"></i></span>
+                  <div><strong>Deadline.</strong> <span class="text-secondary">Otherwise the deadline settles it: most Yes wins, If needed breaks a tie.</span></div>
+                </div>
+                <div class="how-step">
+                  <span class="avatar avatar-sm bg-purple-lt text-purple"><i class="ti ti-brand-telegram"></i></span>
+                  <div><strong>Everyone hears.</strong> <span class="text-secondary">The poll page shows the result, and a connected Telegram group is told.</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      {{else if .Poll}}
+      {{with .Poll}}
+        <!-- Where it stands: the decision, or how close it is to one -->
+        <div data-live="status">
+        {{if .IsConfirmed}}{{with $.Chosen}}
+        <div class="card mb-3">
+          <div class="card-status-top bg-green"></div>
+          <div class="card-body">
+            <div class="row align-items-center g-3">
+              <div class="col-auto"><div class="date-tile lg chosen" aria-hidden="true"><div class="dt-wd">{{weekday .Start}}</div><div class="dt-day">{{dayNum .Start}}</div><div class="dt-mon">{{month .Start}}</div></div></div>
+              <div class="col" style="min-width:0">
+                <div class="text-green fw-bold text-uppercase small mb-1"><i class="ti ti-circle-check-filled me-1"></i>It's on</div>
+                <div class="result-when">{{long .Start}}</div>
+                <div class="text-secondary mt-1">
+                  {{plural .CanCome "person"}} can come{{with .Yes}}: {{names .}}{{end}}{{with .Maybe}}{{if $.Chosen.Yes}};{{else}}:{{end}} {{names .}} if needed{{end}}
+                </div>
+              </div>
+              <div class="col-12 col-md-auto d-flex flex-wrap gap-2">
+                <a class="btn btn-primary" href="/polls/{{$.Poll.ID}}/event.ics" download><i class="ti ti-calendar-plus me-1"></i>Add to calendar</a>
+                <button class="btn" type="button" data-copy="{{$.Result}}"><i class="ti ti-copy me-1"></i>Copy result</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {{end}}
+        {{else if .IsCancelled}}
+        <div class="card mb-3">
+          <div class="card-status-top bg-red"></div>
+          <div class="card-body d-flex align-items-center gap-3">
+            <span class="avatar bg-red-lt text-red"><i class="ti ti-calendar-off fs-2"></i></span>
+            <div class="flex-fill">
+              <div class="text-red fw-bold text-uppercase small mb-1">Called off</div>
+              <div class="fw-medium">{{if .Quorum}}No time had {{.Quorum}} people who could come by {{label .Deadline}}.{{else}}Nobody could make any of the times.{{end}}</div>
+              {{if $.IsOrganizer}}<div class="text-secondary small mt-1">You can still pick one of the times below to put it on anyway.</div>{{end}}
+            </div>
+          </div>
+        </div>
+        {{else}}
+        <div class="row row-cards mb-3">
+          <div class="col-6 col-md-3">
+            <div class="card card-sm h-100"><div class="card-body d-flex align-items-center"><div class="row align-items-center flex-fill">
+              <div class="col-auto"><span class="stat-icon bg-blue-lt text-blue rounded d-flex align-items-center justify-content-center"><i class="ti ti-users fs-2"></i></span></div>
+              <div class="col"><div class="fw-bold fs-3">{{$.Answered}} <span class="fs-5 fw-normal text-secondary">of {{len $.People}}</span></div><div class="text-secondary">Answered</div></div>
+            </div></div></div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="card card-sm h-100"><div class="card-body d-flex align-items-center"><div class="row align-items-center flex-fill">
+              <div class="col-auto"><span class="stat-icon bg-orange-lt text-orange rounded d-flex align-items-center justify-content-center"><i class="ti ti-hourglass fs-2"></i></span></div>
+              <div class="col" style="min-width:0"><div class="fw-bold fs-3 text-truncate">{{until .Deadline $.Now}}</div><div class="text-secondary text-truncate" title="Decides {{label .Deadline}}">Decides {{label .Deadline}}</div></div>
+            </div></div></div>
+          </div>
+          <div class="col-12 col-md-6">
+            <!-- h-100 on all three: cards in a row share its height whatever their contents -->
+            <div class="card card-sm h-100"><div class="card-body d-flex flex-column justify-content-center">
+              {{if .Quorum}}
+                {{$best := 0}}{{with $.Leading}}{{$best = .CanCome}}{{end}}
+                <div class="d-flex mb-2"><div class="fw-medium">On if {{.Quorum}} can come</div><div class="ms-auto fw-bold">{{$best}} / {{.Quorum}}</div></div>
+                <div class="progress progress-lg"><div class="progress-bar bg-green" style="width: {{percent $best .Quorum}}%" role="progressbar" aria-valuenow="{{$best}}" aria-valuemin="0" aria-valuemax="{{.Quorum}}"></div></div>
+                <div class="text-secondary small mt-2">{{with $.Leading}}Best so far: {{label .Start}}{{else}}Nobody can make any time yet{{end}}. It's on as soon as one time gets there.</div>
+              {{else}}
+                <div class="d-flex mb-2"><div class="fw-medium">{{with $.Leading}}Heading for {{label .Start}}{{else}}Nothing leading yet{{end}}</div><div class="ms-auto fw-bold">{{percent $.Answered (len $.People)}}%</div></div>
+                <div class="progress progress-lg"><div class="progress-bar bg-blue" style="width: {{percent $.Answered (len $.People)}}%" role="progressbar" aria-valuenow="{{$.Answered}}" aria-valuemin="0" aria-valuemax="{{len $.People}}"></div></div>
+                <div class="text-secondary small mt-2 text-truncate">{{with $.Waiting}}Waiting for {{range $i, $p := .}}{{if $i}}, {{end}}{{$p.Name}}{{end}}{{else}}Everyone has answered{{end}}</div>
+              {{end}}
+            </div></div>
+          </div>
+        </div>
+        {{end}}
+        </div>
+
+        <!-- The times, who can make each, and your answer -->
+        <div class="card" data-live="slots">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Times</h3>
+              {{if .IsOpen}}<div class="card-subtitle small mb-0">Answer each one. Times you leave unmarked count as No.</div>{{end}}
+            </div>
+          </div>
+          <div class="list-group list-group-flush">
+            {{range $.Slots}}{{template "slotrow" (row $ .)}}{{end}}
+          </div>
+        </div>
+      {{end}}
+
+      {{else}}
+        <!-- Dashboard -->
+        <div data-live="dash">
+        {{range .Groups}}
+          <div class="group-title"><i class="ti ti-{{.Icon}} text-{{.Color}}"></i>{{.Title}}<span class="fw-normal">{{len .Polls}}</span></div>
+          <div class="row row-cards">
+            {{range .Polls}}
+            <div class="col-md-6 col-lg-4">{{template "pollcard" (card $ .)}}</div>
+            {{end}}
+          </div>
+        {{else}}
+        <div class="card"><div class="card-body">
+          <div class="empty">
+            <div class="empty-icon"><i class="ti ti-calendar-plus fs-1"></i></div>
+            <p class="empty-title">Plan your first meetup</p>
+            <p class="empty-subtitle text-secondary">Offer a few times, send the link to your friends, and Halfway decides when it happens.</p>
+            <div class="empty-action"><a href="/new" class="btn btn-primary"><i class="ti ti-plus me-1"></i>New poll</a></div>
+          </div>
+        </div></div>
+        {{end}}
+        </div>
+      {{end}}
+
+      </div>
+    </div>
+  </div>
+</div>
+
+{{with .Poll}}
+<!-- Invite dialog -->
+<div class="modal modal-blur fade" id="share-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Invite to “{{.Title}}”</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" data-live="share">
+        {{$id := .ID}}
+        <label class="form-label" for="invite-url">Invite link</label>
+        <div class="input-group">
+          <input type="text" id="invite-url" class="form-control key-link" value="{{$.InviteURL}}" readonly onfocus="this.select()">
+          <button class="btn" type="button" data-copy="{{$.InviteURL}}"><i class="ti ti-copy me-1"></i>Copy</button>
+        </div>
+        {{if .InviteOpen}}
+        <div class="form-hint mt-1">Anyone with this link can join and answer. Paste it into your group chat: the preview shows how the poll stands, so posting it again later shares the result.</div>
+        {{else}}
+        <div class="alert alert-warning mt-2 mb-0 py-2" role="status"><i class="ti ti-lock me-1"></i><strong>Closed.</strong> Newcomers can't join; the people below can still open it.</div>
+        {{end}}
+        {{if $.IsOrganizer}}
+        <div class="d-flex flex-wrap gap-3 mt-2">
+          {{if .InviteOpen}}
+          <form method="post" action="/polls/{{$id}}/invite/close" data-inplace data-toast="Link closed to newcomers">
+            <input type="hidden" name="next" value="{{$.Path}}">
+            <button class="btn btn-link btn-sm p-0 text-secondary" type="submit"><i class="ti ti-lock me-1"></i>Close to newcomers</button>
+          </form>
+          {{else}}
+          <form method="post" action="/polls/{{$id}}/invite/open" data-inplace data-toast="Link open again">
+            <input type="hidden" name="next" value="{{$.Path}}">
+            <button class="btn btn-link btn-sm p-0 text-secondary" type="submit"><i class="ti ti-lock-open me-1"></i>Open it again</button>
+          </form>
+          {{end}}
+          <form method="post" action="/polls/{{$id}}/invite/reset" data-inplace data-toast="New link made; the old one no longer works" onsubmit="return confirm('The current link will stop working. Continue?')">
+            <input type="hidden" name="next" value="{{$.Path}}">
+            <button class="btn btn-link btn-sm p-0 text-secondary" type="submit"><i class="ti ti-refresh me-1"></i>Create a new link</button>
+          </form>
+        </div>
+
+        <hr class="my-3">
+        <label class="form-label" for="organizer-url"><i class="ti ti-crown me-1"></i>Organizer link</label>
+        <div class="input-group">
+          <input type="text" id="organizer-url" class="form-control key-link" value="{{$.OrganizerURL}}" readonly onfocus="this.select()">
+          <button class="btn" type="button" data-copy="{{$.OrganizerURL}}"><i class="ti ti-copy me-1"></i>Copy</button>
+        </div>
+        <div class="form-hint mt-1">Whoever opens this can run the poll with you: change it, decide it, pick another time. Only give it to co-organizers.</div>
+        <form method="post" action="/polls/{{$id}}/organizer/reset" class="mt-1" data-inplace data-toast="New organizer link made" onsubmit="return confirm('The current organizer link will stop working. Continue?')">
+          <input type="hidden" name="next" value="{{$.Path}}">
+          <button class="btn btn-link btn-sm p-0 text-secondary" type="submit"><i class="ti ti-refresh me-1"></i>Create a new organizer link</button>
+        </form>
+
+        <hr class="my-3">
+        <div class="form-label"><i class="ti ti-bell me-1"></i>Tell a group chat when it's decided</div>
+        {{range $.Chats}}
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="avatar avatar-sm bg-azure-lt text-azure"><i class="ti ti-brand-telegram"></i></span>
+          <div class="flex-fill text-truncate">{{if .Title}}{{.Title}}{{else}}Telegram chat{{end}}
+            {{if .Broken}}<div class="small text-danger">Disconnected: the bot was removed. Add it again to reconnect.</div>{{else}}<div class="small text-secondary">Connected</div>{{end}}
+          </div>
+          <form method="post" action="/polls/{{$id}}/chats/{{.ID}}/remove" data-inplace data-toast="Chat disconnected">
+            <input type="hidden" name="next" value="{{$.Path}}">
+            <button class="btn btn-icon btn-sm btn-ghost-danger" type="submit" title="Disconnect" aria-label="Disconnect {{.Title}}"><i class="ti ti-unlink"></i></button>
+          </form>
+        </div>
+        {{end}}
+        {{if $.TelegramLink}}
+        <a class="btn w-100" href="{{$.TelegramLink}}" target="_blank" rel="noopener"><i class="ti ti-brand-telegram me-1 text-azure"></i>Add to a Telegram group</a>
+        <div class="form-hint mt-1">Pick the group and add the bot. It posts one message per decision there, and reads nothing.</div>
+        {{else}}
+        <div class="form-hint">Telegram isn't set up on this server. Whoever runs it can turn it on (see the README). Without it, everyone sees the result on this page.</div>
+        {{end}}
+        {{end}}
+
+        <div class="mt-4">
+          <label class="form-label">People ({{len $.People}})</label>
+          <div class="list-group list-group-flush">
+            {{range $.People}}
+            <div class="list-group-item px-0">
+              <div class="row align-items-center g-2">
+                <div class="col-auto"><span class="avatar avatar-sm rounded-circle bg-{{color .ID}}-lt">{{initial .Name}}</span></div>
+                <div class="col text-truncate">
+                  {{.Name}}
+                  {{if eq .ID $.User.ID}}<span class="badge bg-secondary-lt ms-1">You</span>{{end}}
+                  {{if .Organizer}}<span class="badge bg-yellow-lt ms-1">Organizer</span>{{end}}
+                  <div class="small {{if .Answered}}text-green{{else}}text-secondary{{end}}">{{if .Answered}}Answered{{else}}Hasn't answered{{end}}</div>
+                </div>
+                {{if and $.IsOrganizer (ne .ID $.User.ID) (not .Organizer)}}
+                <div class="col-auto">
+                  <form method="post" action="/polls/{{$id}}/people/{{.ID}}/remove" data-inplace onsubmit="return confirm('Take {{.Name}} off this poll, with their answers?')">
+                    <input type="hidden" name="next" value="{{$.Path}}">
+                    <button class="btn btn-icon btn-sm btn-ghost-danger" type="submit" title="Remove" aria-label="Remove {{.Name}}"><i class="ti ti-user-minus"></i></button>
+                  </form>
+                </div>
+                {{end}}
+              </div>
+            </div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        {{if $.IsOrganizer}}
+        <form method="post" action="/polls/{{.ID}}/delete" class="me-auto" onsubmit="return confirm('Delete this poll for everyone on it? You can undo this for a day.')">
+          <button class="btn btn-ghost-danger" type="submit"><i class="ti ti-trash me-1"></i>Delete poll</button>
+        </form>
+        {{end}}
+        {{if not $.LastOrganizer}}
+        <form method="post" action="/polls/{{.ID}}/leave" onsubmit="return confirm('Leave this poll? {{if .IsOpen}}Your answers go with you. {{end}}You need the link to come back.')">
+          <button class="btn btn-outline-danger" type="submit"><i class="ti ti-logout me-1"></i>Leave poll</button>
+        </form>
+        {{end}}
+      </div>
+    </div>
+  </div>
+</div>
+
+{{if and $.IsOrganizer .IsOpen}}
+<!-- Deadline and minimum -->
+<div class="modal modal-blur fade" id="settings-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="/polls/{{.ID}}/settings" data-inplace data-toast="Saved" data-close-modal>
+      <input type="hidden" name="next" value="{{$.Path}}">
+      <div class="modal-header">
+        <h5 class="modal-title">Deadline and minimum</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" for="settings-deadline">Decide by</label>
+        <input id="settings-deadline" type="datetime-local" name="deadline" class="form-control" value="{{.Deadline}}" required>
+        <div class="form-hint mb-3">No later than the first time.</div>
+        <label class="form-label" for="settings-quorum">Only if at least</label>
+        <div class="input-group">
+          <input id="settings-quorum" type="number" name="quorum" class="form-control" value="{{with .Quorum}}{{.}}{{end}}" min="2" max="100" placeholder="anyone">
+          <span class="input-group-text">can come</span>
+        </div>
+        <div class="form-hint">Lower it, and a time that has enough people already puts it on straight away.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
+{{end}}
+
+<!-- Profile dialog -->
+<div class="modal modal-blur fade" id="profile-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Your profile</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-center mb-4">
+          <span data-live="me-avatar"><span class="avatar avatar-lg rounded-circle bg-{{color .User.ID}}-lt">{{initial .User.Name}}</span></span>
+          <div class="ms-3 text-secondary">Shown next to your answers on every poll you're on.</div>
+        </div>
+        <form method="post" action="/me" data-inplace data-toast="Name updated">
+          <input type="hidden" name="next" value="{{.Path}}">
+          <label class="form-label" for="profile-name">Display name</label>
+          <div class="input-group">
+            <input id="profile-name" type="text" name="name" class="form-control" value="{{.User.Name}}" required maxlength="40" autocomplete="nickname">
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+
+        <hr class="my-4">
+
+        <h6 class="mb-1"><i class="ti ti-key me-1"></i>Your sign-in key</h6>
+        <p class="text-secondary small mb-2">This key is <strong>you</strong> on Halfway. Paste it on another device ("Already use Halfway on another device?") to see your polls there too.</p>
+        <div class="input-group">
+          <input type="password" id="token" class="form-control key-link" readonly placeholder="••••••••••••••••••••••••" aria-label="Sign-in key">
+          <button class="btn" type="button" id="toggle-token" title="Show or hide" aria-label="Show or hide the key"><i class="ti ti-eye"></i></button>
+          <button class="btn" type="button" id="copy-token"><i class="ti ti-copy me-1"></i>Copy</button>
+        </div>
+        <div class="form-hint mt-1">Keep it secret: anyone who has it can answer as you. Clearing your browser's cookies without saving it means losing this name.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom tab bar for phones and tablets (the sidebar is a hamburger menu there) -->
+<nav class="mobile-tabs d-lg-none" aria-label="Main">
+  <a href="/"{{if eq .View "dashboard"}} class="active" aria-current="page"{{end}}>
+    <i class="ti ti-layout-dashboard"></i><span>Polls</span>
+    <span data-live="tab-news-badge">{{if .UnseenCount}}<em class="tab-badge news">{{.UnseenCount}}</em>{{end}}</span>
+  </a>
+  <a href="/answer"{{if eq .View "answer"}} class="active" aria-current="page"{{end}}>
+    <i class="ti ti-hand-finger"></i><span>To answer</span>
+    <span data-live="tab-answer-badge">{{if .ToAnswerCount}}<em class="tab-badge">{{.ToAnswerCount}}</em>{{end}}</span>
+  </a>
+  <a href="/new"{{if eq .View "new"}} class="active" aria-current="page"{{end}}><i class="ti ti-circle-plus"></i><span>New</span></a>
+  <a href="#profile-modal" data-bs-toggle="modal"><span class="avatar avatar-xs rounded-circle bg-{{color .User.ID}}-lt">{{initial .User.Name}}</span><span>You</span></a>
+</nav>
+
+<div id="toasts" aria-live="polite"></div>
+
+<script src="/static/vendor/tabler.min.js"></script>
+<script>
+(function () {
+  // ---- theme ----
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    var root = document.documentElement;
+    var next = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-bs-theme', next);
+    try { localStorage.setItem('theme', next); } catch (e) {}
+  });
+
+  // ---- toasts ----
+  var box = document.getElementById('toasts');
+  function toast(message, action, ms) {
+    var el = document.createElement('div');
+    el.className = 'toast-item';
+    var text = document.createElement('span');
+    text.textContent = message;
+    el.appendChild(text);
+    if (action) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = action.label;
+      btn.addEventListener('click', function () { el.remove(); action.run(); });
+      el.appendChild(btn);
+    }
+    box.appendChild(el);
+    setTimeout(function () { el.remove(); }, ms || 6000);
+  }
+
+  // ---- live regions ----
+  // Any element with data-live="name" is refreshed in place when the server
+  // sends a fresh copy of the page. Regions being edited are left alone.
+  var pending = false;
+
+  function isEditing(el) {
+    var a = document.activeElement;
+    // A field that is no longer on screen (an edit cancelled with Esc) is not
+    // being typed in, even if the cursor was left behind in it.
+    var shown = a && a.offsetParent !== null;
+    if (a && shown && el.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !a.readOnly) return true;
+    if (el.querySelector('.dropdown-menu.show')) return true; // a menu is open: don't yank it away
+    return !!el.querySelector('.is-editing');
+  }
+
+  function apply(html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    if (doc.title) document.title = doc.title;
+    document.querySelectorAll('[data-live]').forEach(function (cur) {
+      var fresh = doc.querySelector('[data-live="' + cur.getAttribute('data-live') + '"]');
+      if (!fresh || fresh.innerHTML === cur.innerHTML) return;
+      if (isEditing(cur)) { pending = true; return; }
+      cur.innerHTML = fresh.innerHTML;
+    });
+  }
+
+  function flushPending() {
+    if (pending) { pending = false; refresh(); }
+  }
+
+  // Fetch the current page again and swap in whatever changed.
+  var inflight = false, again = false;
+  function refresh() {
+    if (inflight) { again = true; return; }
+    inflight = true;
+    fetch(location.pathname + location.search, { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+      .then(function (res) {
+        if (res.redirected && new URL(res.url).pathname === '/welcome') { location.href = res.url; return; }
+        if (res.status === 404) { location.href = '/'; return; } // the poll was deleted, or we were taken off it
+        if (res.ok) return res.text().then(apply);
+      })
+      .catch(function () {})
+      .then(function () { inflight = false; if (again) { again = false; refresh(); } });
+  }
+  var timer;
+  function scheduleRefresh() { clearTimeout(timer); timer = setTimeout(refresh, 120); }
+
+  // Server-sent events: the server says "something changed", we re-fetch.
+  if (window.EventSource) {
+    var es = new EventSource('/events'), opened = false;
+    es.addEventListener('changed', scheduleRefresh);
+    es.onopen = function () { if (opened) scheduleRefresh(); opened = true; }; // catch up after a reconnect
+  }
+
+  // Some changes come from the clock, not from anyone: "in 3 hours" becomes
+  // "in 2 hours". A page left open looks again every minute while it is on
+  // screen, and as soon as it comes back into view. (A deadline passing is
+  // news, and the server says so when it decides.)
+  setInterval(function () { if (!document.hidden) scheduleRefresh(); }, 60 * 1000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) scheduleRefresh(); });
+
+  // ---- in-place form submits ----
+  // POST the form, follow the redirect back to this page, and swap the result in.
+  function post(url, params) {
+    return fetch(url, { method: 'POST', body: params, headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+      .then(function (res) {
+        if (res.redirected && new URL(res.url).pathname === '/welcome') { location.href = res.url; return null; }
+        if (!res.ok) return res.text().then(function (t) { var e = new Error(t.trim() || ('HTTP ' + res.status)); e.status = res.status; throw e; });
+        var there = new URL(res.url);
+        if (there.pathname + there.search !== location.pathname + location.search) { location.href = res.url; return null; }
+        return res.text();
+      });
+  }
+
+  // A deleted poll sends us to the dashboard, so the server passes the offer
+  // to undo along in the URL rather than trying to keep a toast alive across
+  // the navigation.
+  (function () {
+    var params = new URLSearchParams(location.search);
+    var deleted = params.get('undo');
+    if (!deleted) return;
+    params.delete('undo');
+    var clean = location.pathname + (params.toString() ? '?' + params : '');
+    history.replaceState(null, '', clean);   // so a refresh does not offer it again
+    toast('Poll deleted', {
+      label: 'Undo',
+      run: function () {
+        var form = document.createElement('form');
+        form.method = 'post';
+        form.action = '/polls/' + encodeURIComponent(deleted) + '/restore';
+        document.body.appendChild(form);
+        form.submit();   // a full navigation: it takes us back to the poll
+      }
+    }, 10000);
+  })();
+
+  // The button that submits a form can carry a value of its own (Yes, If
+  // needed and No are one form with three buttons). Older browsers leave it
+  // out of FormData, so put it back by hand.
+  function fieldsOf(form, submitter) {
+    try {
+      return new FormData(form, submitter);
+    } catch (err) {
+      var fd = new FormData(form);
+      if (submitter && submitter.name) fd.append(submitter.name, submitter.value);
+      return fd;
+    }
+  }
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form.matches || !form.matches('[data-inplace]')) return;
+    // A form's own onsubmit has said no, as "Decide now?" does when Cancel is
+    // pressed. It runs before this and cancels the submit, which must stop it
+    // here too, not only the browser's own submission.
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    var params = new URLSearchParams(fieldsOf(form, e.submitter));
+    if (params.has('next')) params.set('next', location.pathname + location.search);
+    // An answer shows as given at once; the page catches up when the server replies.
+    if (form.classList.contains('answer') && e.submitter) {
+      form.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b === e.submitter ? 'true' : 'false'); });
+    }
+    post(form.action, params).then(function (html) {
+      if (html === null) return;
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      var scope = form.closest('.is-editing');
+      if (scope) scope.classList.remove('is-editing');
+      if (form.hasAttribute('data-close-modal')) {
+        var modal = form.closest('.modal');
+        if (modal && window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).hide();
+      }
+      pending = false;
+      apply(html);
+      if (form.dataset.toast) toast(form.dataset.toast, null, 3000);
+    }).catch(function (err) {
+      toast(err.status && err.status < 500 ? err.message : 'Something went wrong. Please try again.');
+      refresh();
+    });
+  });
+
+  // ---- clicks ----
+  function copy(text, btn) {
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).catch(function () {
+      var t = document.createElement('textarea');
+      t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+    }).then(function () { btn.innerHTML = '<i class="ti ti-check me-1"></i>Copied'; });
+  }
+
+  document.addEventListener('click', function (e) {
+    var toggle = e.target.closest('[data-edit-toggle]');
+    if (toggle) {
+      var scope = toggle.closest('[data-edit-scope]');
+      scope.classList.toggle('is-editing');
+      if (scope.classList.contains('is-editing')) {
+        var input = scope.querySelector('[data-edit-form] input[type=text]');
+        if (input) { input.focus(); input.select(); }
+      } else {
+        stopEditing(scope);
+      }
+      return;
+    }
+    var copyBtn = e.target.closest('[data-copy]');
+    if (copyBtn) { copy(copyBtn.getAttribute('data-copy'), copyBtn); return; }
+    var eye = e.target.closest('#toggle-token');
+    if (eye) {
+      loadToken().then(function () { tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password'; });
+      return;
+    }
+    var copyToken = e.target.closest('#copy-token');
+    if (copyToken) {
+      loadToken().then(function () {
+        copy(tokenInput.value, copyToken);
+        // Having it on the clipboard counts as having it, so stop nagging.
+        return post('/me/token/saved', new URLSearchParams({ next: location.pathname + location.search }));
+      }).then(function (html) { if (html) apply(html); });
+    }
+  });
+
+  // stopEditing puts the cursor back on the pencil rather than in a form that
+  // is no longer on screen, and lets through live updates held back meanwhile.
+  function stopEditing(scope) {
+    scope.classList.remove('is-editing');
+    var back = scope.querySelector('[data-edit-view] [data-edit-toggle]');
+    if (back && back.offsetParent !== null) back.focus();
+    else if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flushPending();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var scope = e.target.closest && e.target.closest('.is-editing');
+    if (scope) stopEditing(scope);
+  });
+  document.addEventListener('focusout', function () { setTimeout(flushPending, 0); });
+
+  // ---- the new poll form: a calendar for the times, quick choices for the deadline ----
+  var picker = document.getElementById('slot-picker');
+  if (picker) (function () {
+    var MAX = 8;
+    var form = document.getElementById('new-poll-form');
+    var fallback = document.getElementById('slot-fallback');
+    var deadline = document.getElementById('poll-deadline');
+    var quick = document.getElementById('deadline-quick');
+    var hint = form.querySelector('[data-deadline-hint]');
+    var days = picker.querySelector('[data-cal-days]'), title = picker.querySelector('[data-cal-title]');
+    var chosenBox = picker.querySelector('[data-chosen]'), empty = picker.querySelector('[data-chosen-empty]');
+    var values = picker.querySelector('[data-slot-values]'), errorBox = picker.querySelector('[data-slot-error]');
+    var other = picker.querySelector('[data-time-other]');
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+    function stamp(d) { return ymd(d) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+    function parse(s) { var p = s.split(/[-T:]/).map(Number); return new Date(p[0], p[1] - 1, p[2], p[3] || 0, p[4] || 0); }
+    function label(s) {
+      var d = parse(s);
+      return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ', ' + s.slice(11);
+    }
+
+    // The times already on the form (one sent back to be corrected) carry over.
+    var slots = [];
+    fallback.querySelectorAll('input').forEach(function (i) { if (i.value && slots.indexOf(i.value) < 0) slots.push(i.value); });
+    slots.sort();
+    fallback.remove();
+    picker.classList.remove('d-none');
+
+    // The time of day: what a kind of meetup usually starts at, until one is picked.
+    var usual = { coffee: '10:00', dinner: '19:30', drinks: '20:00', hike: '09:00', other: '19:00' };
+    var picked = false, time = '19:00';
+    function setTime(t, byHand) {
+      time = t; picked = picked || byHand;
+      picker.querySelectorAll('[data-time]').forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-time') === t ? 'true' : 'false'); });
+      if (!picker.querySelector('[data-time="' + t + '"]')) other.value = t; else other.value = '';
+      other.classList.toggle('is-picked', !picker.querySelector('[data-time="' + t + '"]'));
+    }
+    function category() { var c = form.querySelector('input[name=category]:checked'); return c ? c.value : 'other'; }
+    setTime(usual[category()] || '19:00', false);
+    form.addEventListener('change', function (e) {
+      if (e.target.name === 'category' && !picked) setTime(usual[e.target.value] || '19:00', false);
+    });
+    picker.querySelector('[data-times]').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-time]');
+      if (b) setTime(b.getAttribute('data-time'), true);
+    });
+    other.addEventListener('change', function () { if (other.value) setTime(other.value, true); });
+
+    // The calendar: a month at a time, Monday first.
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var shown = slots.length ? parse(slots[0]) : new Date(today);
+    shown = new Date(shown.getFullYear(), shown.getMonth(), 1);
+
+    function say(msg) {
+      errorBox.textContent = msg || '';
+      errorBox.classList.toggle('d-none', !msg);
+    }
+
+    function render() {
+      title.textContent = shown.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+      picker.querySelector('[data-cal-prev]').disabled = shown <= new Date(today.getFullYear(), today.getMonth(), 1);
+      var html = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cal-wd">' + w.slice(0, 2) + '</div>'; }).join('');
+      var lead = (shown.getDay() + 6) % 7;
+      for (var i = 0; i < lead; i++) html += '<div></div>';
+      var d = new Date(shown);
+      while (d.getMonth() === shown.getMonth()) {
+        var key = ymd(d);
+        var on = slots.filter(function (s) { return s.slice(0, 10) === key; });
+        var cls = 'cal-day' + (+d === +today ? ' today' : '') + (on.length ? ' has' : '');
+        var name = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+        html += '<button type="button" class="' + cls + '" data-day="' + key + '"' + (d < today ? ' disabled' : '') +
+          ' aria-pressed="' + (on.length ? 'true' : 'false') + '" aria-label="' + name + (on.length ? ', at ' + on.map(function (s) { return s.slice(11); }).join(' and ') : '') + '">' +
+          d.getDate() + (on.length > 1 ? '<span class="cal-n">' + on.length + '</span>' : '') + '</button>';
+        d.setDate(d.getDate() + 1);
+      }
+      days.innerHTML = html;
+
+      chosenBox.innerHTML = slots.map(function (s) {
+        return '<div class="chosen-row"><i class="ti ti-calendar-event text-primary"></i><span class="flex-fill">' + label(s) +
+          '</span><button type="button" class="btn btn-icon btn-sm btn-ghost-secondary" data-unpick="' + s + '" title="Take this time off" aria-label="Take ' + label(s) + ' off"><i class="ti ti-x"></i></button></div>';
+      }).join('');
+      empty.classList.toggle('d-none', slots.length > 0);
+      picker.querySelector('[data-count]').textContent = slots.length + ' of ' + MAX;
+      values.innerHTML = slots.map(function (s) { return '<input type="hidden" name="slot" value="' + s + '">'; }).join('');
+      updateDeadline();
+    }
+
+    days.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-day]');
+      if (!b) return;
+      var s = b.getAttribute('data-day') + 'T' + time;
+      var at = slots.indexOf(s);
+      if (at >= 0) {
+        slots.splice(at, 1);
+        say('');
+      } else if (parse(s) <= new Date()) {
+        say(time + ' today has already gone. Pick a later time, or another day.');
+        return;
+      } else if (slots.length >= MAX) {
+        say('That is ' + MAX + ' times already, which is plenty. Take one off first.');
+        return;
+      } else {
+        slots.push(s); slots.sort(); say('');
+      }
+      render();
+      var again = days.querySelector('[data-day="' + s.slice(0, 10) + '"]');
+      if (again) again.focus();
+    });
+    chosenBox.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-unpick]');
+      if (!b) return;
+      slots.splice(slots.indexOf(b.getAttribute('data-unpick')), 1);
+      say('');
+      render();
+    });
+    picker.querySelector('[data-cal-prev]').addEventListener('click', function () { shown.setMonth(shown.getMonth() - 1); render(); });
+    picker.querySelector('[data-cal-next]').addEventListener('click', function () { shown.setMonth(shown.getMonth() + 1); render(); });
+
+    // The deadline: a day, two or a week before the first time, as long as
+    // that is still to come, or a time picked by hand.
+    var choice = deadline.value ? 'custom' : '1';
+    quick.classList.remove('d-none'); quick.classList.add('d-flex');
+    function before(days) {
+      if (!slots.length) return null;
+      var d = parse(slots[0]); d.setDate(d.getDate() - days);
+      return d > new Date(Date.now() + 3600 * 1000) ? d : null;
+    }
+    function updateDeadline() {
+      quick.querySelectorAll('[data-before]').forEach(function (b) {
+        var v = b.getAttribute('data-before');
+        b.disabled = v !== 'custom' && !before(+v);
+        b.setAttribute('aria-pressed', v === choice ? 'true' : 'false');
+      });
+      deadline.classList.toggle('d-none', choice !== 'custom');
+      var now = stamp(new Date());
+      deadline.min = now;
+      if (slots.length) deadline.max = slots[0]; else deadline.removeAttribute('max');
+      if (choice === 'custom') {
+        hint.textContent = 'No later than the first time. If enough people can come sooner, it is on sooner.';
+        return;
+      }
+      var d = before(+choice);
+      if (!slots.length) {
+        deadline.value = '';
+        hint.textContent = 'Counted back from the first time, once there is one.';
+      } else if (d) {
+        deadline.value = stamp(d);
+        hint.textContent = 'Decides ' + label(deadline.value) + ', or as soon as enough people can come.';
+      } else {
+        // Too soon for that: leave it to the server, which takes halfway to the first time.
+        deadline.value = '';
+        var half = new Date(Date.now() + (parse(slots[0]) - Date.now()) / 2);
+        hint.textContent = 'The first time is soon, so it decides halfway there: about ' + label(stamp(half)) + '.';
+      }
+    }
+    quick.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-before]');
+      if (!b || b.disabled) return;
+      choice = b.getAttribute('data-before');
+      updateDeadline();
+      if (choice === 'custom') deadline.focus();
+    });
+
+    form.addEventListener('submit', function (e) {
+      if (!slots.length) {
+        e.preventDefault();
+        say('Tap at least one day in the calendar.');
+        days.querySelector('.cal-day:not(:disabled)').focus();
+      }
+    });
+
+    render();
+    if (window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      var name = document.getElementById('poll-title');
+      if (name && !name.value) name.focus();
+    }
+  })();
+
+  // ---- profile dialog: the key is fetched only when asked for, and forgotten on close ----
+  var tokenInput = document.getElementById('token');
+  var tokenLoaded = false;
+  function loadToken() {
+    if (tokenLoaded) return Promise.resolve();
+    return fetch('/me/token', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (data) { tokenInput.value = data.token; tokenLoaded = true; });
+  }
+  document.getElementById('profile-modal').addEventListener('hidden.bs.modal', function () {
+    tokenInput.value = ''; tokenInput.type = 'password'; tokenLoaded = false;
+    document.getElementById('copy-token').innerHTML = '<i class="ti ti-copy me-1"></i>Copy';
+  });
+
+  // Open a dialog when the URL asks for one (#share after making a poll or a
+  // new link, #profile from old /me links).
+  var wanted = { '#share': '[data-bs-target="#share-modal"]', '#profile': '#profile-open' }[location.hash];
+  if (wanted) {
+    history.replaceState(null, '', location.pathname + location.search);
+    var opener = document.querySelector(wanted);
+    if (opener) opener.click();
+  }
+})();
+</script>
+</body>
+</html>

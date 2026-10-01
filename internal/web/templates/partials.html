@@ -1,0 +1,298 @@
+{{define "assets"}}
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📍%3C/text%3E%3C/svg%3E">
+  <!-- Installable as an app: "Add to Home Screen" gives it its own icon and a window without browser chrome -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <meta name="theme-color" content="#1d273b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Halfway">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try { document.documentElement.setAttribute('data-bs-theme', localStorage.getItem('theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')); } catch (e) {}
+  </script>
+  <!-- Everything is served from this server: no CDN sees who is planning
+       what with whom, and the app works on a network with no way out.
+       Regenerate with tools/vendor/fetch.py. -->
+  <link rel="stylesheet" href="/static/vendor/inter.css">
+  <link rel="stylesheet" href="/static/vendor/tabler.min.css">
+  <link rel="stylesheet" href="/static/vendor/tabler-icons.css">
+  <style>
+    :root { --tblr-font-sans-serif: 'Inter', system-ui, sans-serif; }
+    body { font-feature-settings: "cv11", "ss01"; }
+    /* Subtle dot grid that follows the light/dark theme */
+    .page-wrapper, .page-center {
+      background-image: radial-gradient(circle, color-mix(in srgb, var(--tblr-body-color) 14%, transparent) 1.2px, transparent 1.4px);
+      background-size: 22px 22px;
+    }
+    /* Keep the count badge vertically centred on the row (Tabler pins it to the corner) */
+    .navbar-vertical .nav-link { align-items: center; }
+    .navbar-vertical .nav-link .badge { position: static !important; transform: none !important; margin-left: 0; }
+    .poll-card { transition: transform .15s, box-shadow .15s; }
+    .poll-card:hover { transform: translateY(-2px); box-shadow: var(--tblr-box-shadow-card); }
+    .poll-card.has-unseen { box-shadow: inset 3px 0 0 var(--tblr-primary); }
+    /* The card's menu sits above the link stretched over the card */
+    .poll-card .poll-menu { position: relative; z-index: 2; }
+    :root[data-bs-theme="dark"] .icon-to-dark, :root:not([data-bs-theme="dark"]) .icon-to-light { display: none; }
+    .stat-icon { width: 2.5rem; height: 2.5rem; }
+    /* Tabler's negative margin on the last avatar would overlap the Invite button,
+       and with three or more people it hides so much of each that the initials
+       are unreadable; overlap them a little instead. */
+    .avatar-list-stacked .avatar { margin-right: -.35rem !important; }
+    .avatar-list-stacked .avatar:last-child { margin-right: 0 !important; }
+    .avatar-list-stacked .avatar { box-shadow: 0 0 0 2px var(--tblr-bg-surface); }
+    /* Tabler lets a vertical navbar's nav grow to fill the sidebar; with several
+       sections stacked, keep each at its natural height so the user chip sits last. */
+    .navbar-vertical .navbar-collapse > .navbar-nav { flex: 0 0 auto !important; }
+    /* The "+" beside the Polls heading */
+    .sidebar-add { color: var(--tblr-secondary); border: 0; background: transparent; }
+    .sidebar-add:hover, .sidebar-add.active {
+      color: var(--tblr-body-color); background: color-mix(in srgb, var(--tblr-body-color) 10%, transparent); }
+    .sidebar-user { border-top: 1px solid var(--tblr-border-color); }
+    /* The sidebar follows the page theme. Tabler's navbar colours are fixed
+       light-theme greys (#49566c), which on a dark sidebar are barely readable,
+       so derive them from the theme's own text colour instead. */
+    .navbar.navbar-vertical {
+      --tblr-navbar-color: color-mix(in srgb, var(--tblr-body-color) 72%, transparent);
+      --tblr-navbar-hover-color: var(--tblr-body-color);
+      --tblr-navbar-active-color: var(--tblr-body-color);
+      color: var(--tblr-navbar-color);
+    }
+    .navbar-vertical .navbar-nav .nav-link.active { font-weight: 600; }
+    .unread-dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--tblr-primary); flex-shrink: 0; }
+
+    /* Banners across the top of the page. The text asks for enough room to
+       read comfortably next to its icon; when the buttons beside it would
+       squeeze it narrower than that, they drop onto a line of their own. */
+    .page-banner > .flex-fill { flex: 1 1 17rem !important; min-width: min(100%, 17rem); }
+    @media (max-width: 575.98px) { .page-banner > .ti { display: none; } }
+
+    /* Headings over groups of polls, and inside a card's list */
+    .group-title { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+                   color: var(--tblr-secondary); margin: 1.5rem 0 .75rem; display: flex; align-items: center; gap: .4rem; }
+    .group-title:first-child { margin-top: 0; }
+    .list-day { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+                color: var(--tblr-secondary); padding: .5rem 1rem; background: var(--tblr-bg-surface-secondary); }
+    .list-day-note { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+    /* A date as a little calendar page: weekday, day, month */
+    .date-tile { width: 3.25rem; flex-shrink: 0; text-align: center; border-radius: var(--tblr-border-radius);
+                 border: 1px solid var(--tblr-border-color); background: var(--tblr-bg-surface); overflow: hidden; line-height: 1.1; }
+    .date-tile .dt-wd { font-size: .625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: .15rem 0;
+                        background: color-mix(in srgb, var(--tblr-primary) 14%, transparent); color: var(--tblr-primary); }
+    .date-tile .dt-day { font-size: 1.25rem; font-weight: 700; padding-top: .2rem; }
+    .date-tile .dt-mon { font-size: .7rem; color: var(--tblr-secondary); padding-bottom: .25rem; }
+    .date-tile.lg { width: 4.5rem; }
+    .date-tile.lg .dt-day { font-size: 1.9rem; }
+    .slot-chosen .date-tile .dt-wd, .date-tile.chosen .dt-wd { background: var(--tblr-green); color: #fff; }
+
+    /* One time on a poll: when, who can come, and your answer */
+    .slot-row { transition: background .15s; }
+    .slot-row:hover { background: var(--tblr-bg-surface-secondary); }
+    .slot-row.slot-leading { box-shadow: inset 3px 0 0 var(--tblr-primary); }
+    .slot-row.slot-chosen { box-shadow: inset 3px 0 0 var(--tblr-green); background: color-mix(in srgb, var(--tblr-green) 7%, transparent); }
+    .slot-row.slot-dim .slot-main { opacity: .6; }
+    .slot-clock { font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .slot-count { min-width: 3.5rem; text-align: center; line-height: 1.1; }
+    .slot-count .n { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .slot-count .progress { height: .25rem; margin-top: .3rem; }
+    .who .avatar { width: 1.5rem; height: 1.5rem; font-size: .7rem; }
+    /* "If needed" people are there, but only just: a dashed ring and faded */
+    .who .avatar.maybe { opacity: .7; box-shadow: 0 0 0 2px var(--tblr-bg-surface), 0 0 0 3px var(--tblr-yellow) !important; }
+    .who-names { overflow-wrap: anywhere; }
+
+    /* Yes / If needed / No: three buttons, one pressed */
+    .answer .btn { flex: 1 1 0; white-space: nowrap; font-weight: 500; }
+    .answer .btn[aria-pressed="true"].is-yes { background: var(--tblr-green); border-color: var(--tblr-green); color: #fff; }
+    .answer .btn[aria-pressed="true"].is-maybe { background: var(--tblr-yellow); border-color: var(--tblr-yellow); color: #1d273b; }
+    .answer .btn[aria-pressed="true"].is-no { background: var(--tblr-secondary); border-color: var(--tblr-secondary); color: #fff; }
+    .answer .btn[aria-pressed="false"] { color: var(--tblr-secondary); }
+    .answer-wrap { min-width: 16.5rem; }
+
+    /* The decision, when there is one */
+    .result-when { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
+    .category-pick .form-selectgroup-label { display: flex; flex-direction: column; align-items: center; gap: .25rem;
+                                              min-width: 5.5rem; padding: .6rem .5rem; }
+    .category-pick .form-selectgroup-label .ti { font-size: 1.5rem; }
+    /* Picking times: a month of days to tap, and the time of day as chips */
+    .cal { border: 1px solid var(--tblr-border-color); border-radius: var(--tblr-border-radius); padding: .5rem; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: .25rem; }
+    .cal-wd { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; text-align: center;
+              color: var(--tblr-secondary); padding: .15rem 0; }
+    .cal-day { position: relative; height: 2.5rem; border: 0; border-radius: var(--tblr-border-radius); background: transparent;
+               color: var(--tblr-body-color); font-weight: 500; font-variant-numeric: tabular-nums; cursor: pointer; }
+    .cal-day:hover:not(:disabled) { background: color-mix(in srgb, var(--tblr-primary) 14%, transparent); }
+    .cal-day:disabled { opacity: .3; cursor: default; }
+    .cal-day.today { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tblr-primary) 60%, transparent); }
+    .cal-day.has, .cal-day.has:hover { background: var(--tblr-primary); color: #fff; }
+    .cal-day .cal-n { position: absolute; top: 2px; right: 4px; font-size: .6rem; font-weight: 700; line-height: 1; }
+    .time-chip { font-variant-numeric: tabular-nums; }
+    .time-chip[aria-pressed="true"], .time-other.is-picked { background: var(--tblr-primary); border-color: var(--tblr-primary); color: #fff; }
+    .time-other { width: 7.5rem; }
+    .chosen-row { display: flex; align-items: center; gap: .5rem; padding: .2rem .25rem .2rem .6rem; font-size: .875rem;
+                  border: 1px solid var(--tblr-border-color); border-radius: var(--tblr-border-radius); }
+    @media (max-width: 767.98px) { .cal-day { height: 2.75rem; } .time-other { width: 100%; } }
+    .how-step { display: flex; gap: .75rem; }
+    .how-step + .how-step { margin-top: 1rem; }
+    .how-step .avatar { flex-shrink: 0; }
+
+    /* Inline editing: [data-edit-scope] toggles between its view and its form */
+    [data-edit-scope] [data-edit-form] { display: none; }
+    [data-edit-scope].is-editing [data-edit-form] { display: block; }
+    [data-edit-scope].is-editing [data-edit-view] { display: none; }
+    .rename-btn { opacity: 0; transition: opacity .15s; }
+    .page-title-wrap:hover .rename-btn, .rename-btn:focus { opacity: 1; }
+    @media (hover: none) { .rename-btn { opacity: 1; } }
+
+    .key-link { font-family: var(--tblr-font-monospace); font-size: .85rem; }
+
+    /* Toasts (e.g. "Poll deleted · Undo") */
+    #toasts { position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%); z-index: 2000;
+              display: flex; flex-direction: column; gap: .5rem; align-items: center; pointer-events: none; }
+    .toast-item { pointer-events: auto; display: flex; align-items: center; gap: 1rem; padding: .6rem .9rem;
+                  border-radius: var(--tblr-border-radius); background: #1d273b; color: #fff; font-size: .875rem;
+                  box-shadow: 0 6px 24px rgba(0,0,0,.35); animation: toast-in .18s ease-out; }
+    .toast-item button { background: none; border: 0; color: #6ea8fe; font-weight: 600; padding: 0; cursor: pointer; }
+    .toast-item button:hover { text-decoration: underline; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    /* ---- Phones and tablets ---- */
+    .mobile-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030; display: flex;
+                   background: var(--tblr-bg-surface); border-top: 1px solid var(--tblr-border-color);
+                   padding-bottom: env(safe-area-inset-bottom); }
+    .mobile-tabs a { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                     gap: 2px; min-height: 56px; color: var(--tblr-secondary); text-decoration: none; font-size: .7rem; }
+    .mobile-tabs a i { font-size: 1.45rem; line-height: 1; }
+    .mobile-tabs a.active { color: var(--tblr-primary); }
+    .mobile-tabs .avatar { width: 1.45rem; height: 1.45rem; font-size: .7rem; }
+    .tab-badge { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 1.1rem; height: 1.1rem; padding: 0 .3rem;
+                 border-radius: 999px; font-size: .65rem; font-style: normal; font-weight: 700; line-height: 1.1rem;
+                 text-align: center; background: var(--tblr-orange); color: #fff; }
+    .tab-badge.news { background: var(--tblr-blue); }
+    @media (max-width: 991.98px) {
+      /* keep content and toasts clear of the tab bar (and the home indicator) */
+      .page-wrapper { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+      html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+      #toasts { bottom: calc(76px + env(safe-area-inset-bottom)); }
+    }
+    @media (max-width: 767.98px) {
+      /* 16px inputs stop iPhones zooming the page when a field is focused */
+      .form-control, .form-control-sm, .form-select { font-size: 16px !important; min-height: 44px; }
+      /* comfortable touch targets (44px) */
+      .btn { min-height: 44px; }
+      .btn-icon, .rename-btn, .sidebar-add {
+        width: 44px; height: 44px; min-width: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+      .navbar-toggler { min-width: 44px; min-height: 44px; }
+      .dropdown-item { padding: .75rem 1rem; }
+      .answer-wrap { min-width: 0; }
+      .result-when { font-size: 1.3rem; }
+    }
+  </style>
+{{end}}
+
+{{/* The category icons are named in web.go, not here, so list them for
+     tools/vendor/fetch.py and TestEveryIconIsVendored, which only read the
+     templates: ti-coffee ti-tools-kitchen-2 ti-beer ti-trekking ti-calendar-event */}}
+
+{{/* A date as a little calendar page. Argument: a Stamp. */}}
+{{define "datetile"}}<div class="date-tile" aria-hidden="true"><div class="dt-wd">{{weekday .}}</div><div class="dt-day">{{dayNum .}}</div><div class="dt-mon">{{month .}}</div></div>{{end}}
+
+{{/* A poll on the dashboard. Argument: cardView. */}}
+{{define "pollcard"}}{{$c := cat .Category}}
+<!-- The whole card opens the poll (the title's link is stretched over it);
+     the menu sits above that, so it opens without leaving the page. -->
+<div class="card card-link poll-card h-100{{if .Unseen}} has-unseen{{end}}">
+  <div class="card-body">
+    <div class="d-flex align-items-center mb-3">
+      <span class="avatar bg-{{$c.Color}}-lt text-{{$c.Color}} me-3 flex-shrink-0"><i class="ti ti-{{$c.Icon}} fs-2"></i></span>
+      <div class="flex-fill" style="min-width:0">
+        <a href="/polls/{{.ID}}" class="d-block fw-bold text-truncate text-reset text-decoration-none stretched-link">{{.Title}}</a>
+        <div class="text-secondary small text-truncate">
+          {{if .IsOpen}}{{.Answered}} of {{.People}} answered · decides {{until .Deadline .Now}}
+          {{else if .IsConfirmed}}{{label .Chosen}} · {{plural .People "person"}}
+          {{else}}Called off · {{plural .People "person"}}{{end}}
+        </div>
+      </div>
+      {{if .Unseen}}<span class="badge bg-blue text-white ms-2 flex-shrink-0">New</span>
+      {{else if and .IsOpen (not .Mine)}}<span class="badge bg-orange-lt text-orange ms-2 flex-shrink-0">Answer</span>
+      {{else if .IsCancelled}}<span class="badge bg-red-lt text-red ms-2 flex-shrink-0">Off</span>
+      {{else if and .IsConfirmed (.Past .NowStamp)}}<span class="badge bg-secondary-lt ms-2 flex-shrink-0">Done</span>
+      {{else if .IsConfirmed}}<span class="badge bg-green-lt text-green ms-2 flex-shrink-0">On</span>{{end}}
+      <div class="dropdown poll-menu ms-1 me-n2 flex-shrink-0">
+        <button type="button" class="btn btn-icon btn-sm btn-ghost-secondary" data-bs-toggle="dropdown" aria-expanded="false" title="More" aria-label="More actions for {{.Title}}"><i class="ti ti-dots-vertical"></i></button>
+        <div class="dropdown-menu dropdown-menu-end">
+          {{if .Organizer}}
+          <form method="post" action="/polls/{{.ID}}/delete" onsubmit="return confirm('Delete “{{.Title}}” for everyone on it? You can undo this for a day.')">
+            <button class="dropdown-item text-danger" type="submit"><i class="ti ti-trash me-2"></i>Delete poll</button>
+          </form>
+          {{else}}
+          <form method="post" action="/polls/{{.ID}}/leave" onsubmit="return confirm('Leave “{{.Title}}”? {{if .IsOpen}}Your answers go with you. {{end}}You need the link to come back.')">
+            <button class="dropdown-item text-danger" type="submit"><i class="ti ti-logout me-2"></i>Leave poll</button>
+          </form>
+          {{end}}
+        </div>
+      </div>
+    </div>
+    {{if .IsOpen}}
+    <div class="progress progress-sm"><div class="progress-bar bg-blue" style="width: {{percent .Answered .People}}%"></div></div>
+    {{else if .IsConfirmed}}
+    <div class="progress progress-sm"><div class="progress-bar bg-green" style="width: 100%"></div></div>
+    {{else}}
+    <div class="progress progress-sm"><div class="progress-bar bg-red opacity-50" style="width: 100%"></div></div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{/* One of a poll's times on its page. Argument: slotView. */}}
+{{define "slotrow"}}{{$p := .Page}}
+<div class="list-group-item slot-row{{if .Leading}} slot-leading{{end}}{{if .Chosen}} slot-chosen{{end}}{{if and $p.Poll.IsConfirmed (not .Chosen)}} slot-dim{{end}}">
+  <div class="row align-items-center g-3">
+    <div class="col-auto slot-main">{{template "datetile" .Start}}</div>
+    <div class="col slot-main" style="min-width:0">
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <span class="slot-clock">{{clock .Start}}</span>
+        <span class="text-secondary small">{{if $p.Poll.IsOpen}}{{until .Start $p.Now}}{{else}}{{weekday .Start}} {{dayNum .Start}} {{month .Start}}{{end}}</span>
+        {{if .Leading}}<span class="badge bg-blue-lt text-blue"><i class="ti ti-trending-up me-1"></i>Leading</span>{{end}}
+        {{if .Chosen}}<span class="badge bg-green text-white"><i class="ti ti-check me-1"></i>Chosen</span>{{end}}
+      </div>
+      <div class="who d-flex align-items-center gap-2 mt-1">
+        {{if or .Yes .Maybe}}
+        <span class="avatar-list avatar-list-stacked">
+          {{range .Yes}}<span class="avatar rounded-circle bg-{{color .UserID}}-lt" title="{{.Name}}: yes">{{initial .Name}}</span>{{end}}
+          {{range .Maybe}}<span class="avatar rounded-circle bg-{{color .UserID}}-lt maybe" title="{{.Name}}: if needed">{{initial .Name}}</span>{{end}}
+        </span>
+        <span class="small text-secondary who-names">{{with .Yes}}{{names .}}{{end}}{{if and .Yes .Maybe}} · {{end}}{{with .Maybe}}{{names .}} if needed{{end}}</span>
+        {{else}}
+        <span class="small text-secondary">Nobody yet</span>
+        {{end}}
+      </div>
+    </div>
+    <div class="col-auto slot-count slot-main" title="{{.CanCome}} can come{{if $p.Poll.Quorum}}, {{$p.Poll.Quorum}} needed{{end}}">
+      <div class="n">{{.CanCome}}{{if $p.Poll.Quorum}}<span class="fs-5 fw-normal text-secondary">/{{$p.Poll.Quorum}}</span>{{end}}</div>
+      <div class="small text-secondary">can come</div>
+      {{if $p.Poll.Quorum}}<div class="progress"><div class="progress-bar {{if ge .CanCome $p.Poll.Quorum}}bg-green{{else}}bg-blue{{end}}" style="width: {{percent .CanCome $p.Poll.Quorum}}%"></div></div>{{end}}
+    </div>
+    {{if $p.Poll.IsOpen}}
+    <div class="col-12 col-md-auto answer-wrap">
+      <form method="post" action="/polls/{{$p.Poll.ID}}/slots/{{.ID}}/vote" data-inplace class="answer">
+        <input type="hidden" name="next" value="{{$p.Path}}">
+        <div class="btn-group w-100" role="group" aria-label="Can you make {{label .Start}}?">
+          <button type="submit" name="answer" value="2" class="btn is-yes" aria-pressed="{{if and .Answered (eq .Mine 2)}}true{{else}}false{{end}}"><i class="ti ti-check me-1"></i>Yes</button>
+          <button type="submit" name="answer" value="1" class="btn is-maybe" aria-pressed="{{if and .Answered (eq .Mine 1)}}true{{else}}false{{end}}"><i class="ti ti-help-circle me-1"></i>If needed</button>
+          <button type="submit" name="answer" value="0" class="btn is-no" aria-pressed="{{if and .Answered (eq .Mine 0)}}true{{else}}false{{end}}"><i class="ti ti-x me-1"></i>No</button>
+        </div>
+      </form>
+    </div>
+    {{else if and $p.IsOrganizer (not .Chosen)}}
+    <div class="col-12 col-md-auto text-md-end">
+      <form method="post" action="/polls/{{$p.Poll.ID}}/slots/{{.ID}}/pick" data-inplace data-toast="Moved. Connected chats are told."
+            onsubmit="return confirm('Make it {{label .Start}} instead? Everyone sees the change, and connected chats are told.')">
+        <input type="hidden" name="next" value="{{$p.Path}}">
+        <button type="submit" class="btn btn-sm btn-ghost-secondary"><i class="ti ti-hand-finger me-1"></i>Pick this time</button>
+      </form>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
