@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"halfway/internal/discord"
 	"halfway/internal/places"
 	"halfway/internal/store"
 	"halfway/internal/telegram"
@@ -187,9 +188,11 @@ type Server struct {
 	bot   *telegram.Bot // nil when Telegram is not set up
 	// finder looks places up; nil when finding places is turned off.
 	finder places.Finder
-	tmpl   *template.Template
-	mux    *http.ServeMux
-	hub    *hub
+	// discord posts to Discord webhooks; nil when they are turned off.
+	discord *discord.Client
+	tmpl    *template.Template
+	mux     *http.ServeMux
+	hub     *hub
 	// signups limits how fast one address can create identities, the only
 	// thing a stranger can do here without a link already.
 	signups *limiter
@@ -210,7 +213,7 @@ type Server struct {
 
 // New makes the web app. bot is nil unless Telegram is set up, and finder
 // unless finding places is.
-func New(s *store.Store, bot *telegram.Bot, finder places.Finder) *Server {
+func New(s *store.Store, bot *telegram.Bot, finder places.Finder, opts ...Option) *Server {
 	srv := &Server{
 		store:      s,
 		bot:        bot,
@@ -223,12 +226,22 @@ func New(s *store.Store, bot *telegram.Bot, finder places.Finder) *Server {
 		signups:    newLimiter(signupBurst, signupRefill),
 		sameOrigin: http.NewCrossOriginProtection(),
 		kicks:      make(chan struct{}, 1),
+		discord:    discord.New(),
 		now:        time.Now,
+	}
+	for _, o := range opts {
+		o(srv)
 	}
 	s.SetNotifier(srv.hub.publish)
 	srv.routes()
 	return srv
 }
+
+// Option changes how the server is set up.
+type Option func(*Server)
+
+// WithDiscord sets how decisions reach Discord, or turns that off with nil.
+func WithDiscord(c *discord.Client) Option { return func(s *Server) { s.discord = c } }
 
 // Run decides polls as their deadlines pass and posts decisions to chats,
 // until ctx ends. Nothing else has to be running for a deadline to be kept.
@@ -244,6 +257,9 @@ func (s *Server) Run(ctx context.Context) {
 		}
 		if s.bot != nil {
 			s.bot.Deliver(ctx, s.store)
+		}
+		if s.discord != nil {
+			s.discord.Deliver(ctx, s.store)
 		}
 		select {
 		case <-ctx.Done():
@@ -369,6 +385,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /polls/{id}/organizer/reset", s.organizer(s.formOrganizerReset))
 	s.mux.HandleFunc("POST /polls/{id}/people/{user}/remove", s.organizer(s.formRemovePerson))
 	s.mux.HandleFunc("POST /polls/{id}/chats/{chat}/remove", s.organizer(s.formRemoveChat))
+	s.mux.HandleFunc("POST /polls/{id}/chats/discord", s.organizer(s.formAddDiscord))
 	s.mux.HandleFunc("POST /polls/{id}/delete", s.organizer(s.formDelete))
 	s.mux.HandleFunc("POST /polls/{id}/restore", s.authed(s.formRestore))
 }
@@ -851,6 +868,9 @@ type pageData struct {
 	PlacesOn bool
 	Places   placesData
 
+	// DiscordOn is whether organizers can connect Discord channels.
+	DiscordOn bool
+
 	// Devices is the other devices signed in as the user, for the profile.
 	Devices []store.Device
 }
@@ -889,7 +909,7 @@ type newForm struct {
 // basePage fills in what every page with the sidebar needs.
 func (s *Server) basePage(r *http.Request, u *store.User, view string) (pageData, error) {
 	now := s.now()
-	d := pageData{View: view, User: u, Path: r.URL.RequestURI(), Now: now, NowStamp: now.Format(store.Stamp), PlacesOn: s.finder != nil}
+	d := pageData{View: view, User: u, Path: r.URL.RequestURI(), Now: now, NowStamp: now.Format(store.Stamp), PlacesOn: s.finder != nil, DiscordOn: s.discord != nil}
 	polls, err := s.store.Polls(u.ID)
 	if err != nil {
 		return d, err
@@ -1384,6 +1404,40 @@ func (s *Server) formRemovePerson(w http.ResponseWriter, r *http.Request, c poll
 	}
 	if err := s.store.Leave(c.Poll.ID, uid); err != nil && !errors.Is(err, store.ErrInvalid) {
 		s.htmlErr(w, r, err)
+		return
+	}
+	http.Redirect(w, r, backTo(r, pollPath(c.Poll.ID)), http.StatusSeeOther)
+}
+
+// formAddDiscord connects a Discord channel by its webhook URL, after
+// checking with Discord that it works.
+func (s *Server) formAddDiscord(w http.ResponseWriter, r *http.Request, c pollCtx) {
+	if s.discord == nil {
+		http.NotFound(w, r)
+		return
+	}
+	hook, err := s.discord.Clean(r.FormValue("webhook"))
+	if err != nil {
+		http.Error(w, "That isn't a Discord webhook URL. In Discord: the channel's settings, Integrations, Webhooks, Copy Webhook URL.", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	name, err := s.discord.Check(ctx, hook)
+	if errors.Is(err, discord.ErrRefused) {
+		http.Error(w, "Discord says that webhook doesn't exist. Copy its URL again.", http.StatusBadRequest)
+		return
+	} else if err != nil {
+		log.Printf("discord: %v", err)
+		http.Error(w, "Couldn't reach Discord. Try again in a moment.", http.StatusBadGateway)
+		return
+	}
+	title := "Discord"
+	if name != "" {
+		title = "Discord: " + name
+	}
+	if err := s.store.AddChat(c.Poll.ID, discord.Platform, hook, title); err != nil {
+		s.fail(w, err)
 		return
 	}
 	http.Redirect(w, r, backTo(r, pollPath(c.Poll.ID)), http.StatusSeeOther)

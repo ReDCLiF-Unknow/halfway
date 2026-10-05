@@ -52,7 +52,12 @@ func main() {
 	defer stop()
 
 	bot := startTelegram(ctx, s)
-	app := web.New(s, bot, startPlaces())
+	var opts []web.Option
+	if strings.EqualFold(os.Getenv("HALFWAY_DISCORD"), "off") {
+		opts = append(opts, web.WithDiscord(nil))
+		log.Print("discord: off")
+	}
+	app := web.New(s, bot, startPlaces(), opts...)
 	go app.Run(ctx)
 
 	srv := &http.Server{

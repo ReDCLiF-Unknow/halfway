@@ -3,9 +3,13 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"halfway/internal/discord"
 )
 
 // deviceLink asks for a one-time sign-in link, as the profile dialog does.
@@ -137,4 +141,38 @@ func TestDeviceNames(t *testing.T) {
 			t.Errorf("%q: got %q, want %q", ua, got, want)
 		}
 	}
+}
+
+func TestConnectingADiscordChannel(t *testing.T) {
+	hooks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/webhooks/1/ok" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Write([]byte(`{"name": "Dinner club"}`))
+	}))
+	defer hooks.Close()
+	e := newEnv(t)
+	e.app.discord = discord.NewWith(hooks.Client(), func(u *url.URL) bool { return strings.HasPrefix(u.String(), hooks.URL+"/api/webhooks/") })
+	anna, ben := e.register("Anna"), e.register("Ben")
+	p := e.create(anna, dinner(""))
+	e.join(ben, p)
+	id := itoa(p.ID)
+	add := func(token, hook string) int {
+		return e.form(token, "/polls/"+id+"/chats/discord", url.Values{"webhook": {hook}}).StatusCode
+	}
+	want(t, "a participant connecting a channel", add(ben, hooks.URL+"/api/webhooks/1/ok"), http.StatusForbidden)
+	want(t, "something that is not a webhook", add(anna, "https://evil.example/x"), http.StatusBadRequest)
+	want(t, "a deleted webhook", add(anna, hooks.URL+"/api/webhooks/2/gone"), http.StatusBadRequest)
+	want(t, "a working webhook", add(anna, hooks.URL+"/api/webhooks/1/ok"), http.StatusSeeOther)
+	chats, _ := e.st.Chats(p.ID)
+	if len(chats) != 1 || chats[0].Platform != "discord" || chats[0].Title != "Discord: Dinner club" {
+		t.Fatalf("chats %+v", chats)
+	}
+	_, body := e.page(anna, "/polls/"+id)
+	if !strings.Contains(body, "Discord: Dinner club") || strings.Contains(body, "/api/webhooks/1/ok") {
+		t.Error("the channel should be listed, and its secret URL never shown")
+	}
+	e.app.discord = nil
+	want(t, "connecting with Discord off", add(anna, hooks.URL+"/api/webhooks/1/ok"), http.StatusNotFound)
 }

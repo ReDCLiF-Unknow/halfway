@@ -520,9 +520,10 @@
         <div class="form-label"><i class="ti ti-bell me-1"></i>Tell a group chat when it's decided</div>
         {{range $.Chats}}
         <div class="d-flex align-items-center gap-2 mb-2">
-          <span class="avatar avatar-sm bg-azure-lt text-azure"><i class="ti ti-brand-telegram"></i></span>
+          {{if eq .Platform "discord"}}<span class="avatar avatar-sm bg-indigo-lt text-indigo"><i class="ti ti-brand-discord"></i></span>
+          {{else}}<span class="avatar avatar-sm bg-azure-lt text-azure"><i class="ti ti-brand-telegram"></i></span>{{end}}
           <div class="flex-fill text-truncate">{{if .Title}}{{.Title}}{{else}}Telegram chat{{end}}
-            {{if .Broken}}<div class="small text-danger">Disconnected: the bot was removed. Add it again to reconnect.</div>{{else}}<div class="small text-secondary">Connected</div>{{end}}
+            {{if .Broken}}<div class="small text-danger">{{if eq .Platform "discord"}}Disconnected: the webhook was deleted. Paste a new one to reconnect.{{else}}Disconnected: the bot was removed. Add it again to reconnect.{{end}}</div>{{else}}<div class="small text-secondary">Connected</div>{{end}}
           </div>
           <form method="post" action="/polls/{{$id}}/chats/{{.ID}}/remove" data-inplace data-toast="Chat disconnected">
             <input type="hidden" name="next" value="{{$.Path}}">
@@ -535,6 +536,17 @@
         <div class="form-hint mt-1">Pick the group and add the bot. It posts one message per decision there, and reads nothing.</div>
         {{else}}
         <div class="form-hint">Telegram isn't set up on this server. Whoever runs it can turn it on (see the README). Without it, everyone sees the result on this page.</div>
+        {{end}}
+        {{if $.DiscordOn}}
+        <form method="post" action="/polls/{{$id}}/chats/discord" data-inplace data-toast="Discord channel connected" data-busy="Checking with Discord…" class="mt-3">
+          <input type="hidden" name="next" value="{{$.Path}}">
+          <label class="form-label small mb-1" for="discord-webhook"><i class="ti ti-brand-discord me-1 text-indigo"></i>Or a Discord channel</label>
+          <div class="input-group">
+            <input type="url" id="discord-webhook" name="webhook" class="form-control" placeholder="https://discord.com/api/webhooks/…" required autocomplete="off">
+            <button class="btn" type="submit">Connect</button>
+          </div>
+          <div class="form-hint mt-1">In Discord: the channel's settings, Integrations, Webhooks, New Webhook, Copy Webhook URL. Keep it to yourself, like a password.</div>
+        </form>
         {{end}}
         {{end}}
 

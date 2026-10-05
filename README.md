@@ -21,9 +21,9 @@ after that knows who you are.
 
 One binary serves everything, including its own CSS, JavaScript and fonts, so a page load reaches nothing
 but your own server: no CDN learns who is planning what with whom, and it works on a network with no way
-out. The two exceptions are Telegram and finding places, neither of which does anything until whoever
-runs the server turns it on (see [Telling a group chat](#telling-a-group-chat) and
-[Where to meet](#where-to-meet)).
+out. The exceptions are telling a group chat (Telegram, or a Discord channel an organizer connects) and
+finding places, none of which sends anything until someone turns it on (see
+[Telling a group chat](#telling-a-group-chat) and [Where to meet](#where-to-meet)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/poll-dark.png">
@@ -202,8 +202,13 @@ their browser a secret key (in an `HttpOnly` cookie; only a hash is stored serve
   to run the poll together. It has its own **Create a new organizer link**.
 - **People.** The dialog lists everyone, organizers marked, and who has answered. Organizers can take
   someone off (the second entry of somebody who joined again from a new device, say).
-- **Profile** (bottom of the sidebar) lets you rename yourself and shows your key. Paste it on another
-  device ("Already use Halfway on another device?") to see your polls there too. Clearing your cookies
+- **Another device.** In your profile, **Show a sign-in code** shows a QR code to scan with your phone (or a
+  link to open on the other device). It works once, for 10 minutes, and asks before signing in, so a chat
+  app's link preview cannot use it up. The device gets a key of its own, listed in your profile with
+  **Sign out**, so one can be signed out without the others. The code is made of the address you reach the
+  server at, so a phone can only use it if it can reach that address too.
+- **Profile** (bottom of the sidebar) lets you rename yourself and shows your key. Pasting it on another
+  device ("Already use Halfway on another device?") works too. Clearing your cookies
   without saving the key means losing that name, with no password to reset and no email to send, so every
   page says so until you have saved it (copying it counts).
 
@@ -258,7 +263,7 @@ Open Database Licence, and credited on every poll that shows it.
 
 ## Telling a group chat
 
-Halfway can post each decision into a **Telegram** group, so the group hears where it already talks. There
+Halfway can post each decision into a **Telegram** group or a **Discord** channel, so the group hears where it already talks. There
 is exactly one message per decision and nothing else: none when the poll is made, none while people answer.
 
 | Decision | Message |
@@ -266,6 +271,8 @@ is exactly one message per decision and nothing else: none when the poll is made
 | Confirmed | ✅ Friday dinner is on: Thu 8 Oct, 19:30 · *link* |
 | Called off | ❌ Friday dinner didn't reach 4 people and is cancelled |
 | Moved by an organizer | 🔁 Friday dinner moved to Fri 9 Oct, 19:00 · *link* |
+
+### Telegram
 
 **For whoever runs the server**, once: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`),
 and start the server with its token:
@@ -282,6 +289,20 @@ Telegram is not set up.
 the bot. It says hello in the group, and the dialog lists the group as connected. A group connected to a
 poll hears about decisions made after it was connected. If the bot is removed from the group, the dialog
 says so and asks you to add it again.
+
+### Discord
+
+A poll's organizer can connect a Discord channel without anything set up on the server: in Discord, open
+the channel's settings, **Integrations**, **Webhooks**, make one and **Copy Webhook URL**; then paste it under
+**Or a Discord channel** in the Invite dialog. Halfway checks it with Discord, lists the channel as connected,
+and posts the same one message per decision. Mentions are switched off, so a poll called "@everyone" pings
+nobody. If the webhook is deleted, the dialog says so.
+
+The webhook URL works like a password for posting into that channel, so it is never shown again once
+pasted, and the server only ever sends to `https://discord.com/api/webhooks/...` addresses, whatever is
+pasted. Whoever runs the server can turn Discord off with `HALFWAY_DISCORD=off`.
+
+### WhatsApp and Signal
 
 WhatsApp and Signal cannot be told: neither lets a bot post into an existing friends' group. Their groups
 see the result in the link preview, or on the poll page.

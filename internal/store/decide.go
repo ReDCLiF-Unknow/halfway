@@ -332,6 +332,18 @@ func (s *Store) LinkChat(code, platform, target, title string) (Poll, error) {
 	return p, nil
 }
 
+// AddChat connects a chat to a poll directly, as a pasted webhook does.
+// Connecting the same one again mends it if it was broken.
+func (s *Store) AddChat(pollID int64, platform, target, title string) error {
+	if _, err := s.db.Exec(`INSERT INTO chats (poll_id, platform, target, title) VALUES (?, ?, ?, ?)
+		ON CONFLICT (poll_id, platform, target) DO UPDATE SET title = excluded.title, broken = 0`,
+		pollID, platform, target, cleanLabel(title, maxTitleLen)); err != nil {
+		return err
+	}
+	s.changed(pollID)
+	return nil
+}
+
 // Chats is every chat connected to a poll, in the order they were connected.
 func (s *Store) Chats(pollID int64) ([]Chat, error) {
 	rows, err := s.db.Query(`SELECT id, poll_id, platform, target, title, broken FROM chats WHERE poll_id = ? ORDER BY id`, pollID)
