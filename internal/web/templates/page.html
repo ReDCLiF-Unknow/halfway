@@ -636,6 +636,42 @@
 
         <hr class="my-4">
 
+        <h6 class="mb-1"><i class="ti ti-devices me-1"></i>Use Halfway on another device</h6>
+        <p class="text-secondary small mb-2">Scan the code with your phone, or open the link on the other device. It works once, for 10 minutes, and that device sees all your polls.</p>
+        <button type="button" class="btn" id="device-link"><i class="ti ti-qrcode me-1"></i>Show a sign-in code</button>
+        <div class="device-link-box d-none mt-3" id="device-link-box">
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <div class="qr" data-qr></div>
+            <div class="flex-fill" style="min-width: 12rem">
+              <div class="input-group input-group-sm">
+                <input type="text" class="form-control key-link" readonly data-device-url aria-label="One-time sign-in link" onfocus="this.select()">
+                <button class="btn" type="button" data-copy-device><i class="ti ti-copy me-1"></i>Copy</button>
+              </div>
+              <div class="form-hint mt-1" data-device-expiry></div>
+            </div>
+          </div>
+        </div>
+        <div data-live="devices">
+        {{with .Devices}}
+        <div class="small fw-medium mt-3 mb-1">Signed in with a code</div>
+        <div class="list-group list-group-flush">
+          {{range .}}
+          <div class="list-group-item px-0 py-2 d-flex align-items-center gap-2">
+            <i class="ti ti-device-mobile text-secondary"></i>
+            <span class="flex-fill small">{{if .Name}}{{.Name}}{{else}}A device{{end}}{{if eq .ID $.User.Device}} <span class="badge bg-secondary-lt ms-1">This one</span>{{end}}
+              <span class="text-secondary"> · since {{.CreatedAt.Local.Format "2 Jan"}}</span></span>
+            <form method="post" action="/me/devices/{{.ID}}/remove"{{if ne .ID $.User.Device}} data-inplace data-toast="Signed out"{{end}} onsubmit="return confirm('Sign this device out? It will need a new code to come back.')">
+              <input type="hidden" name="next" value="{{$.Path}}">
+              <button type="submit" class="btn btn-sm btn-ghost-danger">Sign out</button>
+            </form>
+          </div>
+          {{end}}
+        </div>
+        {{end}}
+        </div>
+
+        <hr class="my-4">
+
         <h6 class="mb-1"><i class="ti ti-key me-1"></i>Your sign-in key</h6>
         <p class="text-secondary small mb-2">This key is <strong>you</strong> on Halfway. Paste it on another device ("Already use Halfway on another device?") to see your polls there too.</p>
         <div class="input-group">
@@ -1195,6 +1231,43 @@
     }
   });
 
+  // ---- another device: a one-time sign-in link, and its QR code ----
+  var deviceBtn = document.getElementById('device-link');
+  var deviceBox = document.getElementById('device-link-box');
+  var deviceTimer = null;
+  function hideDeviceLink() {
+    clearInterval(deviceTimer);
+    deviceBox.classList.add('d-none');
+    deviceBox.querySelector('[data-qr]').innerHTML = '';
+    deviceBox.querySelector('[data-device-url]').value = '';
+    deviceBtn.innerHTML = '<i class="ti ti-qrcode me-1"></i>Show a sign-in code';
+  }
+  deviceBtn.addEventListener('click', function () {
+    deviceBtn.disabled = true;
+    fetch('/me/device-link', { method: 'POST', credentials: 'same-origin', cache: 'no-store' })
+      .then(function (res) { if (!res.ok) throw new Error(); return res.json(); })
+      .then(function (data) {
+        deviceBox.querySelector('[data-qr]').innerHTML = data.qr; // drawn by this server
+        deviceBox.querySelector('[data-device-url]').value = data.link;
+        deviceBox.classList.remove('d-none');
+        deviceBtn.innerHTML = '<i class="ti ti-refresh me-1"></i>Show a new code';
+        var left = deviceBox.querySelector('[data-device-expiry]');
+        clearInterval(deviceTimer);
+        function countDown() {
+          var s = data.expires - Math.floor(Date.now() / 1000);
+          if (s <= 0) { hideDeviceLink(); toast('That code has expired. Show a new one when you need it.'); return; }
+          left.textContent = 'Works once, for another ' + Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2) + '.';
+        }
+        countDown();
+        deviceTimer = setInterval(countDown, 1000);
+      })
+      .catch(function () { toast('Could not make a code. Please try again.'); })
+      .then(function () { deviceBtn.disabled = false; });
+  });
+  deviceBox.querySelector('[data-copy-device]').addEventListener('click', function () {
+    copy(deviceBox.querySelector('[data-device-url]').value, this);
+  });
+
   // ---- profile dialog: the key is fetched only when asked for, and forgotten on close ----
   var tokenInput = document.getElementById('token');
   var tokenLoaded = false;
@@ -1206,6 +1279,7 @@
   }
   document.getElementById('profile-modal').addEventListener('hidden.bs.modal', function () {
     tokenInput.value = ''; tokenInput.type = 'password'; tokenLoaded = false;
+    hideDeviceLink(); // a code left on screen is a key left lying around
     document.getElementById('copy-token').innerHTML = '<i class="ti ti-copy me-1"></i>Copy';
   });
 

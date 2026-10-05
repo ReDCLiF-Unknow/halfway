@@ -34,6 +34,9 @@ type User struct {
 	// somewhere safe. The key is the whole account, so until they say so,
 	// every page reminds them.
 	TokenSaved bool `json:"-"`
+	// Device is which of their devices this is: 0 for the first, the one
+	// with the key made with the name, and otherwise one signed in by link.
+	Device int64 `json:"-"`
 }
 
 type Store struct {
@@ -165,7 +168,7 @@ func Open(path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(conns)
 	s := &Store{db: db}
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + devicesSchema); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -292,8 +295,10 @@ func (s *Store) UserByToken(token string) (User, error) {
 	if token == "" {
 		return u, ErrNotFound
 	}
-	err := s.db.QueryRow(`SELECT id, name, token_saved FROM users WHERE token_hash = ?`,
-		hashToken(token)).Scan(&u.ID, &u.Name, &u.TokenSaved)
+	h := hashToken(token)
+	err := s.db.QueryRow(`SELECT id, name, token_saved, 0 FROM users WHERE token_hash = ?
+		UNION ALL SELECT u.id, u.name, u.token_saved, d.id FROM devices d JOIN users u ON u.id = d.user_id WHERE d.token_hash = ?`,
+		h, h).Scan(&u.ID, &u.Name, &u.TokenSaved, &u.Device)
 	if errors.Is(err, sql.ErrNoRows) {
 		return u, ErrNotFound
 	}

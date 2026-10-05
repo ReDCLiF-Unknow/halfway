@@ -329,6 +329,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /me/token", s.authed(s.meToken))
 	s.mux.HandleFunc("POST /me/token/saved", s.authed(s.meTokenSaved))
 	s.mux.HandleFunc("POST /me", s.authed(s.mePost))
+	s.mux.HandleFunc("POST /me/device-link", s.authed(s.meDeviceLink))
+	s.mux.HandleFunc("POST /me/devices/{id}/remove", s.authed(s.meRemoveDevice))
+	s.mux.HandleFunc("GET /d/{code}", s.deviceGet)
+	s.mux.HandleFunc("POST /d/{code}", s.devicePost)
 
 	// Pages
 	s.mux.HandleFunc("GET /{$}", s.authed(s.pageDashboard))
@@ -496,6 +500,8 @@ func (s *Server) organizer(h pollHandler) http.HandlerFunc {
 type simplePage struct {
 	Title, Heading, Subtitle, Action, Next, Button, Error string
 	NeedName, ShowToken                                   bool
+	// Warning is something to read before pressing the button.
+	Warning string
 	// Invite describes the poll a link is for, on the page it opens.
 	Invite *invitePreview
 	// OG is what a chat app shows when the link is pasted into it.
@@ -844,6 +850,9 @@ type pageData struct {
 	// Where card, for a poll that finds one.
 	PlacesOn bool
 	Places   placesData
+
+	// Devices is the other devices signed in as the user, for the profile.
+	Devices []store.Device
 }
 
 // group is a heading on the dashboard and the polls under it.
@@ -886,6 +895,9 @@ func (s *Server) basePage(r *http.Request, u *store.User, view string) (pageData
 		return d, err
 	}
 	d.Polls = polls
+	if d.Devices, err = s.store.Devices(u.ID); err != nil {
+		return d, err
+	}
 	var waiting, open, coming, earlier []store.Summary
 	for _, p := range polls {
 		if p.Unseen {

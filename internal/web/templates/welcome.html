@@ -44,6 +44,7 @@
         </div>
         {{end}}
         {{if .Error}}<div class="alert alert-danger" role="alert">{{.Error}}</div>{{end}}
+        {{with .Warning}}<div class="alert alert-warning" role="alert">{{.}}</div>{{end}}
         {{if .Action}}
         <form method="post" action="{{.Action}}">
           {{if .NeedName}}
