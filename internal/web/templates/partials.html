@@ -132,6 +132,15 @@
     .chosen-row { display: flex; align-items: center; gap: .5rem; padding: .2rem .25rem .2rem .6rem; font-size: .875rem;
                   border: 1px solid var(--tblr-border-color); border-radius: var(--tblr-border-radius); }
     @media (max-width: 767.98px) { .cal-day { height: 2.75rem; } .time-other { width: 100%; } }
+    /* Where: how you travel, the places, and everyone's trip to each */
+    .mode-btn[aria-pressed="true"], .vote-btn[aria-pressed="true"] { background: var(--tblr-primary); border-color: var(--tblr-primary); color: #fff; }
+    .venue-row { transition: background .15s; }
+    .venue-row:hover { background: var(--tblr-bg-surface-secondary); }
+    .trips { overflow-wrap: anywhere; }
+    .trip { white-space: nowrap; color: var(--tblr-secondary); }
+    .trip-longest { color: var(--tblr-orange); font-weight: 600; }
+    [data-results]:empty { display: none; }
+    .share-text { font-size: .9rem; resize: vertical; }
     .how-step { display: flex; gap: .75rem; }
     .how-step + .how-step { margin-top: 1rem; }
     .how-step .avatar { flex-shrink: 0; }
@@ -192,7 +201,9 @@
 
 {{/* The category icons are named in web.go, not here, so list them for
      tools/vendor/fetch.py and TestEveryIconIsVendored, which only read the
-     templates: ti-coffee ti-tools-kitchen-2 ti-beer ti-trekking ti-calendar-event */}}
+     templates: ti-coffee ti-tools-kitchen-2 ti-beer ti-trekking ti-calendar-event,
+     the ways of travelling: ti-walk ti-bike ti-bus ti-car, and ones a template
+     puts together from parts: ti-sparkles ti-refresh ti-map-pin */}}
 
 {{/* A date as a little calendar page. Argument: a Stamp. */}}
 {{define "datetile"}}<div class="date-tile" aria-hidden="true"><div class="dt-wd">{{weekday .}}</div><div class="dt-day">{{dayNum .}}</div><div class="dt-mon">{{month .}}</div></div>{{end}}
@@ -209,7 +220,7 @@
         <a href="/polls/{{.ID}}" class="d-block fw-bold text-truncate text-reset text-decoration-none stretched-link">{{.Title}}</a>
         <div class="text-secondary small text-truncate">
           {{if .IsOpen}}{{.Answered}} of {{.People}} answered · decides {{until .Deadline .Now}}
-          {{else if .IsConfirmed}}{{label .Chosen}} · {{plural .People "person"}}
+          {{else if .IsConfirmed}}{{label .Chosen}}{{with .Venue}} · {{.}}{{else}} · {{plural $.People "person"}}{{end}}
           {{else}}Called off · {{plural .People "person"}}{{end}}
         </div>
       </div>
@@ -296,3 +307,183 @@
   </div>
 </div>
 {{end}}
+
+{{/* Where to meet: your starting point, and the places with everyone's
+     trips. Argument: pageData, for a poll that finds a place. */}}
+{{define "wherecard"}}{{$p := .Poll}}{{$c := cat $p.Category}}
+<div class="card mt-3" data-live="places">
+  <div class="card-header">
+    <div>
+      <h3 class="card-title">Where</h3>
+      <div class="card-subtitle small mb-0">The fairest place is the one whose longest trip is shortest. Travel times are estimates.</div>
+    </div>
+  </div>
+  {{if not .PlacesOn}}
+  <div class="card-body text-secondary">Finding places isn't turned on on this server any more, so this poll is about when only.</div>
+  {{else}}
+  <!-- Your starting point. Nobody else sees it: they see travel times. -->
+  <div class="card-body border-bottom" data-edit-scope>
+    {{with .Places.Mine}}
+    <div class="d-flex flex-wrap align-items-center gap-2" data-edit-view>
+      <span class="avatar avatar-sm bg-primary-lt text-primary"><i class="ti ti-map-pin"></i></span>
+      <div class="flex-fill" style="min-width:0">
+        <div class="small text-secondary">You're coming from</div>
+        <div class="fw-medium text-truncate">{{if .Label}}{{.Label}}{{else}}a place you chose{{end}}</div>
+      </div>
+      <form method="post" action="/polls/{{$p.ID}}/start/mode" data-inplace class="btn-group" role="group" aria-label="How you'll travel">
+        <input type="hidden" name="next" value="{{$.Path}}">
+        {{$mine := .Mode}}{{range modes}}
+        <button type="submit" name="mode" value="{{.}}" class="btn btn-sm mode-btn" aria-pressed="{{if eq . $mine}}true{{else}}false{{end}}" title="{{modeName .}}"><i class="ti ti-{{modeIcon .}}"></i><span class="d-none d-sm-inline ms-1">{{modeName .}}</span></button>
+        {{end}}
+      </form>
+      <button type="button" class="btn btn-sm btn-ghost-secondary" data-edit-toggle><i class="ti ti-pencil me-1"></i>Change</button>
+    </div>
+    {{end}}
+    <div{{if .Places.Mine}} data-edit-form{{end}}>
+      <div class="fw-medium mb-1">{{if .Places.Mine}}Coming from somewhere else?{{else}}Where are you coming from?{{end}}</div>
+      <form class="d-flex flex-wrap gap-2" data-place-search="/polls/{{$p.ID}}/places" data-target="start-form" role="search">
+        <div class="input-icon flex-fill" style="min-width: 12rem">
+          <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+          <input type="search" name="q" class="form-control" placeholder="A neighbourhood, street or station" autocomplete="off" aria-label="Where you're coming from" required>
+        </div>
+        <button type="submit" class="btn">Find</button>
+        <button type="button" class="btn" data-geolocate><i class="ti ti-current-location me-1"></i>Use my location</button>
+      </form>
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+        <span class="small text-secondary">Travelling by</span>
+        <div class="btn-group" role="group" aria-label="How you'll travel" data-mode-pick>
+          {{$mine := "transit"}}{{with .Places.Mine}}{{$mine = .Mode}}{{end}}
+          {{range modes}}<button type="button" class="btn btn-sm mode-btn" data-mode="{{.}}" aria-pressed="{{if eq . $mine}}true{{else}}false{{end}}"><i class="ti ti-{{modeIcon .}} me-1"></i>{{modeName .}}</button>{{end}}
+        </div>
+        {{if .Places.Mine}}
+        <form method="post" action="/polls/{{$p.ID}}/start/clear" data-inplace class="ms-auto">
+          <input type="hidden" name="next" value="{{$.Path}}">
+          <button type="submit" class="btn btn-sm btn-link text-secondary p-0">Forget my starting point</button>
+        </form>
+        {{end}}
+      </div>
+      <div class="list-group mt-2" data-results></div>
+      <div class="form-hint mt-2"><i class="ti ti-lock me-1"></i>Nobody sees where you're coming from, only how long it takes you. It's kept to about 500 m, and deleted a week after you meet.</div>
+    </div>
+    <form method="post" action="/polls/{{$p.ID}}/start" data-inplace id="start-form" class="d-none">
+      <input type="hidden" name="next" value="{{$.Path}}">
+      <input type="hidden" name="lat"><input type="hidden" name="lon"><input type="hidden" name="label">
+      <input type="hidden" name="mode" value="{{with .Places.Mine}}{{.Mode}}{{else}}transit{{end}}">
+    </form>
+    <div class="small text-secondary mt-2">{{.Places.Starts}} of {{len .People}} {{if eq (len .People) 1}}has{{else}}have{{end}} said where they're coming from.</div>
+  </div>
+
+  <!-- The places, each with everyone's trip there -->
+  {{if .Places.Venues}}
+  <div class="list-group list-group-flush">
+    {{range .Places.Venues}}
+    <div class="list-group-item venue-row{{if .Leading}} slot-leading{{end}}{{if .Chosen}} slot-chosen{{end}}{{if and $p.IsConfirmed (not .Chosen)}} slot-dim{{end}}">
+      <div class="row align-items-center g-3">
+        <div class="col-auto slot-main"><span class="avatar bg-{{$c.Color}}-lt text-{{$c.Color}}"><i class="ti ti-{{if .Custom}}map-pin{{else}}{{$c.Icon}}{{end}} fs-2"></i></span></div>
+        <div class="col slot-main" style="min-width:0">
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="fw-bold">{{.Name}}</span>
+            {{if .Fairest}}<span class="badge bg-green-lt text-green"><i class="ti ti-scale me-1"></i>Fairest</span>{{end}}
+            {{if .Leading}}<span class="badge bg-blue-lt text-blue"><i class="ti ti-trending-up me-1"></i>Leading</span>{{end}}
+            {{if .Chosen}}<span class="badge bg-green text-white"><i class="ti ti-check me-1"></i>Chosen</span>{{end}}
+            {{if .Custom}}<span class="badge bg-secondary-lt">Added by hand</span>{{end}}
+          </div>
+          <div class="small text-secondary">{{with .Address}}{{.}} · {{end}}<a href="{{.MapURL}}" target="_blank" rel="noopener" class="text-secondary">Map<i class="ti ti-external-link ms-1"></i></a></div>
+          {{if .Fair.Trips}}
+          <div class="small mt-1 trips">
+            {{$long := .Fair.Longest}}{{range $i, $t := .Fair.Trips}}{{if $i}}<span class="text-secondary"> · </span>{{end}}<span class="trip{{if eq $t.Minutes $long}} trip-longest{{end}}" title="{{$t.Name}}, by {{modeName $t.Mode}}"><i class="ti ti-{{modeIcon $t.Mode}}"></i> {{$t.Name}} {{$t.Minutes}} min</span>{{end}}
+          </div>
+          {{end}}
+        </div>
+        {{if .Fair.Trips}}
+        <div class="col-auto slot-count slot-main" title="The longest trip anyone has to make">
+          <div class="n">{{.Fair.Longest}}<span class="fs-5 fw-normal text-secondary"> min</span></div>
+          <div class="small text-secondary">longest</div>
+        </div>
+        {{end}}
+        <div class="col-12 col-md-auto d-flex align-items-center gap-2 justify-content-md-end">
+          {{if .Voters}}
+          <span class="avatar-list avatar-list-stacked who">{{range .Voters}}<span class="avatar rounded-circle bg-{{color .ID}}-lt" title="{{.Name}} would go">{{initial .Name}}</span>{{end}}</span>
+          {{end}}
+          {{if $p.IsOpen}}
+          <form method="post" action="/polls/{{$p.ID}}/venues/{{.ID}}/vote" data-inplace>
+            <input type="hidden" name="next" value="{{$.Path}}">
+            <button type="submit" class="btn btn-sm vote-btn" aria-pressed="{{if .Mine}}true{{else}}false{{end}}"><i class="ti ti-thumb-up me-1"></i>I'd go{{with len .Voters}} · {{.}}{{end}}</button>
+          </form>
+          {{end}}
+          {{if and $.IsOrganizer (not .Chosen)}}
+          <div class="dropdown">
+            <button type="button" class="btn btn-icon btn-sm btn-ghost-secondary" data-bs-toggle="dropdown" aria-expanded="false" title="More" aria-label="More for {{.Name}}"><i class="ti ti-dots"></i></button>
+            <div class="dropdown-menu dropdown-menu-end">
+              <form method="post" action="/polls/{{$p.ID}}/venues/{{.ID}}/pick" data-inplace{{if $p.IsConfirmed}} onsubmit="return confirm('Meet at {{.Name}} instead? Everyone sees the change, and connected chats are told.')"{{end}}>
+                <input type="hidden" name="next" value="{{$.Path}}">
+                <button class="dropdown-item" type="submit"><i class="ti ti-hand-finger me-2"></i>{{if $p.IsConfirmed}}Meet here instead{{else}}Settle on this place{{end}}</button>
+              </form>
+              <form method="post" action="/polls/{{$p.ID}}/venues/{{.ID}}/remove" data-inplace data-toast="Place removed">
+                <input type="hidden" name="next" value="{{$.Path}}">
+                <button class="dropdown-item text-danger" type="submit"><i class="ti ti-trash me-2"></i>Remove</button>
+              </form>
+            </div>
+          </div>
+          {{end}}
+        </div>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+
+  <div class="card-footer" data-edit-scope>
+    <div class="d-flex flex-wrap align-items-center gap-2" data-edit-view>
+      {{if or $p.IsOpen $.IsOrganizer}}
+        {{if .Places.Starts}}
+        <form method="post" action="/polls/{{$p.ID}}/venues/suggest" data-inplace data-busy="Looking for places…">
+          <input type="hidden" name="next" value="{{$.Path}}">
+          <button type="submit" class="btn btn-sm {{if .Places.Venues}}btn-ghost-primary{{else}}btn-primary{{end}}"><i class="ti ti-{{if .Places.Venues}}refresh{{else}}sparkles{{end}} me-1"></i>{{if .Places.Venues}}Suggest again{{else}}Suggest places{{end}}</button>
+        </form>
+        {{else}}
+        <span class="small text-secondary">Once someone says where they're coming from, Halfway can suggest places.</span>
+        {{end}}
+        {{if $.IsOrganizer}}<button type="button" class="btn btn-sm btn-ghost-secondary" data-edit-toggle><i class="ti ti-plus me-1"></i>Add a place</button>{{end}}
+      {{end}}
+      <a class="small text-secondary ms-auto" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Places © OpenStreetMap contributors</a>
+    </div>
+    {{if $.IsOrganizer}}
+    <div data-edit-form>
+      <form class="d-flex flex-wrap gap-2" data-place-search="/polls/{{$p.ID}}/places" data-target="venue-form" role="search">
+        <div class="input-icon flex-fill" style="min-width: 12rem">
+          <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+          <input type="search" name="q" class="form-control" placeholder="A place's name or address" autocomplete="off" aria-label="Find a place to add" required>
+        </div>
+        <button type="submit" class="btn">Find</button>
+        <button type="button" class="btn btn-icon" data-edit-toggle title="Cancel" aria-label="Cancel"><i class="ti ti-x"></i></button>
+      </form>
+      <div class="list-group mt-2" data-results></div>
+      <form method="post" action="/polls/{{$p.ID}}/venues" data-inplace id="venue-form" class="d-none" data-toast="Place added">
+        <input type="hidden" name="next" value="{{$.Path}}">
+        <input type="hidden" name="lat"><input type="hidden" name="lon"><input type="hidden" name="label">
+      </form>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{/* The decision as a message to send anywhere, ready to copy, share or
+     edit first. Argument: pageData, for a decided poll. */}}
+{{define "sharebox"}}{{if .Result}}
+<div class="share-box mt-3 pt-3 border-top">
+  <label class="form-label" for="share-text"><i class="ti ti-send me-1"></i>Tell everyone</label>
+  <textarea id="share-text" class="form-control share-text" rows="3" data-share-text data-invite="{{.InviteURL}}" data-title="{{.Poll.Title}}" aria-describedby="share-hint">{{.Result}}</textarea>
+  <div class="d-flex flex-wrap gap-2 mt-2">
+    <button type="button" class="btn btn-primary" data-copy-from="#share-text"><i class="ti ti-copy me-1"></i>Copy message</button>
+    <button type="button" class="btn d-none" data-share-native><i class="ti ti-share me-1"></i>Share…</button>
+    <a class="btn" data-share-via="whatsapp" href="https://wa.me/?text={{.Result}}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp me-1 text-green"></i>WhatsApp</a>
+    <a class="btn" data-share-via="telegram" href="https://t.me/share/url?url={{.InviteURL}}&amp;text={{.ResultBody}}" target="_blank" rel="noopener"><i class="ti ti-brand-telegram me-1 text-azure"></i>Telegram</a>
+    <a class="btn" data-share-via="email" href="mailto:?subject={{.Poll.Title}}&amp;body={{.Result}}"><i class="ti ti-mail me-1"></i>Email</a>
+  </div>
+  <div class="form-hint mt-1" id="share-hint">Change it however you like before sending. For Signal or anything else, copy it and paste it in.</div>
+</div>
+{{end}}{{end}}
+

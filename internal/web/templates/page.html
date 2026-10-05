@@ -281,6 +281,16 @@
                   </div>
                 </div>
 
+                {{if .PlacesOn}}
+                <div class="mb-4">
+                  <label class="form-check form-switch mb-1">
+                    <input class="form-check-input" type="checkbox" name="places" value="on"{{if .Form.Places}} checked{{end}}>
+                    <span class="form-check-label fw-medium">Also find a place halfway between everyone</span>
+                  </label>
+                  <div class="form-hint">People can say roughly where they're coming from, and Halfway suggests places that keep the longest trip short. Nobody sees where anyone else is.</div>
+                </div>
+                {{end}}
+
                 <div class="row g-3">
                   <div class="col-md-7">
                     <label class="form-label" for="poll-deadline">Decide by</label>
@@ -349,15 +359,19 @@
               <div class="col" style="min-width:0">
                 <div class="text-green fw-bold text-uppercase small mb-1"><i class="ti ti-circle-check-filled me-1"></i>It's on</div>
                 <div class="result-when">{{long .Start}}</div>
+                {{with $.Places.Chosen}}
+                <div class="fs-3 fw-medium mt-1"><i class="ti ti-map-pin text-green me-1"></i>{{.Name}}{{with .Address}}<span class="text-secondary fw-normal">, {{.}}</span>{{end}}
+                  <a class="small ms-1" href="{{.MapURL}}" target="_blank" rel="noopener">Map<i class="ti ti-external-link ms-1"></i></a></div>
+                {{end}}
                 <div class="text-secondary mt-1">
                   {{plural .CanCome "person"}} can come{{with .Yes}}: {{names .}}{{end}}{{with .Maybe}}{{if $.Chosen.Yes}};{{else}}:{{end}} {{names .}} if needed{{end}}
                 </div>
               </div>
               <div class="col-12 col-md-auto d-flex flex-wrap gap-2">
                 <a class="btn btn-primary" href="/polls/{{$.Poll.ID}}/event.ics" download><i class="ti ti-calendar-plus me-1"></i>Add to calendar</a>
-                <button class="btn" type="button" data-copy="{{$.Result}}"><i class="ti ti-copy me-1"></i>Copy result</button>
               </div>
             </div>
+            {{template "sharebox" $}}
           </div>
         </div>
         {{end}}
@@ -372,6 +386,7 @@
               {{if $.IsOrganizer}}<div class="text-secondary small mt-1">You can still pick one of the times below to put it on anyway.</div>{{end}}
             </div>
           </div>
+          <div class="card-body pt-0">{{template "sharebox" $}}</div>
         </div>
         {{else}}
         <div class="row row-cards mb-3">
@@ -418,6 +433,7 @@
             {{range $.Slots}}{{template "slotrow" (row $ .)}}{{end}}
           </div>
         </div>
+        {{if .Places}}{{template "wherecard" $}}{{end}}
       {{end}}
 
       {{else}}
@@ -691,6 +707,7 @@
     var shown = a && a.offsetParent !== null;
     if (a && shown && el.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !a.readOnly) return true;
     if (el.querySelector('.dropdown-menu.show')) return true; // a menu is open: don't yank it away
+    if (el.querySelector('[data-hold]')) return true; // search results are showing
     return !!el.querySelector('.is-editing');
   }
 
@@ -703,6 +720,7 @@
       if (isEditing(cur)) { pending = true; return; }
       cur.innerHTML = fresh.innerHTML;
     });
+    updateShareLinks();
   }
 
   function flushPending() {
@@ -799,6 +817,14 @@
     var params = new URLSearchParams(fieldsOf(form, e.submitter));
     if (params.has('next')) params.set('next', location.pathname + location.search);
     // An answer shows as given at once; the page catches up when the server replies.
+    // A slow one (looking for places asks OpenStreetMap) says it is working.
+    var busy = null, busyWas = '';
+    if (form.dataset.busy) {
+      busy = form.querySelector('button[type=submit]');
+      busyWas = busy.innerHTML;
+      busy.disabled = true;
+      busy.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>' + form.dataset.busy;
+    }
     if (form.classList.contains('answer') && e.submitter) {
       form.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b === e.submitter ? 'true' : 'false'); });
     }
@@ -815,9 +841,12 @@
       apply(html);
       if (form.dataset.toast) toast(form.dataset.toast, null, 3000);
     }).catch(function (err) {
-      toast(err.status && err.status < 500 ? err.message : 'Something went wrong. Please try again.');
+      // The server's own words when it has some: why a place could not be
+      // found, or that something was asked too often.
+      var said = err.status && (err.status < 500 || err.status === 502);
+      toast(said ? err.message : 'Something went wrong. Please try again.');
       refresh();
-    });
+    }).then(function () { if (busy) { busy.disabled = false; busy.innerHTML = busyWas; } });
   });
 
   // ---- clicks ----
@@ -1054,6 +1083,117 @@
       if (name && !name.value) name.focus();
     }
   })();
+
+  // ---- telling everyone: the decision as a message, copied or shared ----
+  // The links follow whatever is in the box, so an edited message is the one sent.
+  function shareText() { return document.querySelector('[data-share-text]'); }
+  function updateShareLinks() {
+    var box = shareText();
+    if (!box) return;
+    // As tall as the message, however it was edited.
+    box.style.height = 'auto';
+    box.style.height = (box.scrollHeight + 2) + 'px';
+    var text = box.value, invite = box.getAttribute('data-invite');
+    var body = text.split('\n').filter(function (l) { return l.indexOf(invite) < 0; }).join('\n');
+    var links = {
+      whatsapp: 'https://wa.me/?text=' + encodeURIComponent(text),
+      telegram: 'https://t.me/share/url?url=' + encodeURIComponent(invite) + '&text=' + encodeURIComponent(body),
+      email: 'mailto:?subject=' + encodeURIComponent(box.getAttribute('data-title')) + '&body=' + encodeURIComponent(text)
+    };
+    document.querySelectorAll('[data-share-via]').forEach(function (a) { a.href = links[a.getAttribute('data-share-via')]; });
+    var native = document.querySelector('[data-share-native]');
+    if (native) native.classList.toggle('d-none', !navigator.share);
+  }
+  document.addEventListener('input', function (e) { if (e.target.matches && e.target.matches('[data-share-text]')) updateShareLinks(); });
+  document.addEventListener('click', function (e) {
+    var from = e.target.closest('[data-copy-from]');
+    if (from) { copy(document.querySelector(from.getAttribute('data-copy-from')).value, from); return; }
+    var native = e.target.closest('[data-share-native]');
+    if (native && navigator.share) {
+      var box = shareText();
+      navigator.share({ title: box.getAttribute('data-title'), text: box.value }).catch(function () {});
+    }
+  });
+  updateShareLinks();
+
+  // ---- where to meet: searching for a starting point or a place ----
+  // Results are buttons; choosing one fills in the hidden form the search is
+  // for (your starting point, or a place to add) and sends it.
+  function sendPlace(targetID, place, scope) {
+    var form = document.getElementById(targetID);
+    if (!form) return;
+    form.lat.value = place.at.lat; form.lon.value = place.at.lon; form.label.value = place.label;
+    if (form.mode) {
+      var picked = scope && scope.querySelector('[data-mode-pick] [aria-pressed="true"]');
+      if (picked) form.mode.value = picked.getAttribute('data-mode');
+    }
+    if (form.requestSubmit) form.requestSubmit(); else form.submit();
+  }
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form.matches || !form.matches('[data-place-search]')) return;
+    e.preventDefault();
+    var box = form.parentElement.querySelector('[data-results]');
+    var q = form.q.value.trim();
+    if (!q) return;
+    box.innerHTML = '<div class="list-group-item text-secondary small">Searching…</div>';
+    box.setAttribute('data-hold', '');
+    fetch(form.getAttribute('data-place-search') + '?q=' + encodeURIComponent(q), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (res) { return res.json().then(function (data) { if (!res.ok) throw new Error(data.error || 'Search failed.'); return data; }); })
+      .then(function (found) {
+        box.innerHTML = '';
+        if (!found.length) {
+          box.innerHTML = '<div class="list-group-item text-secondary small">Nothing found. Try a station or a street name.</div>';
+          return;
+        }
+        found.forEach(function (place) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'list-group-item list-group-item-action d-flex align-items-center gap-2';
+          b.innerHTML = '<i class="ti ti-map-pin text-primary"></i><span class="flex-fill text-truncate"></span>';
+          b.querySelector('span').textContent = place.label;
+          b.addEventListener('click', function () {
+            box.innerHTML = ''; box.removeAttribute('data-hold');
+            sendPlace(form.getAttribute('data-target'), place, form.closest('.card-body'));
+          });
+          box.appendChild(b);
+        });
+        box.firstChild.focus();
+      })
+      .catch(function (err) {
+        box.innerHTML = '';
+        var d = document.createElement('div');
+        d.className = 'list-group-item text-danger small';
+        d.textContent = err.message;
+        box.appendChild(d);
+      });
+  });
+
+  document.addEventListener('click', function (e) {
+    // How you travel, chosen before you say where from.
+    var mode = e.target.closest('[data-mode-pick] [data-mode]');
+    if (mode) {
+      mode.parentElement.querySelectorAll('[data-mode]').forEach(function (b) { b.setAttribute('aria-pressed', b === mode ? 'true' : 'false'); });
+      var start = document.getElementById('start-form');
+      if (start) start.mode.value = mode.getAttribute('data-mode');
+      return;
+    }
+    // The device's own location: asked of the browser, never of anyone else,
+    // and rounded on the server before it is kept.
+    var geo = e.target.closest('[data-geolocate]');
+    if (geo) {
+      if (!navigator.geolocation) { toast('This browser cannot tell where you are. Search instead.'); return; }
+      geo.disabled = true;
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        geo.disabled = false;
+        sendPlace('start-form', { label: 'Your location', at: { lat: pos.coords.latitude, lon: pos.coords.longitude } }, geo.closest('.card-body'));
+      }, function () {
+        geo.disabled = false;
+        toast(window.isSecureContext ? 'Your location is not available. Search instead.' : 'Your location needs HTTPS. Search instead.');
+      }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 });
+    }
+  });
 
   // ---- profile dialog: the key is fetched only when asked for, and forgotten on close ----
   var tokenInput = document.getElementById('token');

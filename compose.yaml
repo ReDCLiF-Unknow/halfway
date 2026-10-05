@@ -12,6 +12,8 @@ services:
       TZ: Europe/Berlin
       # Optional: a token from @BotFather, to post decisions into Telegram groups.
       # HALFWAY_TELEGRAM_TOKEN: "123456:ABC..."
+      # Optional: suggest places to meet, using OpenStreetMap.
+      # HALFWAY_PLACES: "on"
     restart: unless-stopped
 
 volumes:

@@ -37,7 +37,7 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := New(s, nil)
+	app := New(s, nil, nil)
 	app.now = func() time.Time { return monday }
 	srv := httptest.NewServer(app)
 	t.Cleanup(func() { srv.Close(); s.Close() })
@@ -356,7 +356,7 @@ func TestAnsweringUntilTheQuorumDecides(t *testing.T) {
 		t.Errorf("answering a decided poll: %d", resp.StatusCode)
 	}
 	_, body = e.page(chris, "/polls/"+id)
-	for _, s := range []string{"It's on", "Friday 9 October, 19:00", "Add to calendar", "Copy result", "✅ Friday dinner is on: Fri 9 Oct, 19:00"} {
+	for _, s := range []string{"It's on", "Friday 9 October, 19:00", "Add to calendar", "Tell everyone", "Copy message", "✅ Friday dinner is on: Fri 9 Oct, 19:00\nPoll: http://", "https://wa.me/?text=%e2%9c%85%20Friday%20dinner", "mailto:?subject=Friday%20dinner"} {
 		if !strings.Contains(body, s) {
 			t.Errorf("the decided poll's page is missing %q", s)
 		}
@@ -420,6 +420,9 @@ func TestAPageDecidesAPollWhoseDeadlineHasPassed(t *testing.T) {
 	}
 	if !strings.Contains(body, "Pick this time") {
 		t.Error("an organizer should be able to put a cancelled poll on anyway")
+	}
+	if !strings.Contains(body, "❌ Friday dinner is called off: not enough people could come.") {
+		t.Error("a called-off poll has no message to tell everyone")
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"halfway/internal/places"
 	"halfway/internal/store"
 	"halfway/internal/telegram"
 )
@@ -159,8 +160,16 @@ var funcs = template.FuncMap{
 		}
 		return strings.Join(n, ", ")
 	},
-	"add": func(a, b int) int { return a + b },
-	"row": func(d pageData, sl slotRow) slotView { return slotView{slotRow: sl, Page: d} },
+	"add":   func(a, b int) int { return a + b },
+	"row":   func(d pageData, sl slotRow) slotView { return slotView{slotRow: sl, Page: d} },
+	"modes": func() []string { return places.Modes },
+	// modeIcon and modeName are how each way of travelling is shown.
+	"modeIcon": func(m string) string {
+		return map[string]string{"walk": "walk", "bike": "bike", "transit": "bus", "car": "car"}[places.CleanMode(m)]
+	},
+	"modeName": func(m string) string {
+		return map[string]string{"walk": "Walk", "bike": "Bike", "transit": "Transit", "car": "Car"}[places.CleanMode(m)]
+	},
 	"card": func(d pageData, p store.Summary) cardView {
 		return cardView{Summary: p, Now: d.Now, NowStamp: d.NowStamp}
 	},
@@ -176,12 +185,17 @@ type cardView struct {
 type Server struct {
 	store *store.Store
 	bot   *telegram.Bot // nil when Telegram is not set up
-	tmpl  *template.Template
-	mux   *http.ServeMux
-	hub   *hub
+	// finder looks places up; nil when finding places is turned off.
+	finder places.Finder
+	tmpl   *template.Template
+	mux    *http.ServeMux
+	hub    *hub
 	// signups limits how fast one address can create identities, the only
 	// thing a stranger can do here without a link already.
 	signups *limiter
+	// searches and suggests keep place lookups to what a person typing would
+	// make, as each one is a request to OpenStreetMap.
+	searches, suggests *limiter
 	// sameOrigin refuses requests that change something when a browser sent
 	// them from another site. SameSite=Lax stops such a request carrying the
 	// victim's cookie, but not its response setting a new one: without this a
@@ -194,11 +208,15 @@ type Server struct {
 	now func() time.Time
 }
 
-// New makes the web app. bot is nil unless Telegram is set up.
-func New(s *store.Store, bot *telegram.Bot) *Server {
+// New makes the web app. bot is nil unless Telegram is set up, and finder
+// unless finding places is.
+func New(s *store.Store, bot *telegram.Bot, finder places.Finder) *Server {
 	srv := &Server{
 		store:      s,
 		bot:        bot,
+		finder:     finder,
+		searches:   newLimiter(20, 3*time.Second),
+		suggests:   newLimiter(3, 20*time.Second),
 		tmpl:       template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/*.html")),
 		mux:        http.NewServeMux(),
 		hub:        newHub(),
@@ -219,6 +237,9 @@ func (s *Server) Run(ctx context.Context) {
 	defer tick.Stop()
 	for {
 		if _, err := s.store.DecideDue(s.now()); err != nil {
+			log.Print(err)
+		}
+		if err := s.store.PurgeStarts(s.now()); err != nil {
 			log.Print(err)
 		}
 		if s.bot != nil {
@@ -321,6 +342,17 @@ func (s *Server) routes() {
 	// Everyone on a poll
 	s.mux.HandleFunc("POST /polls/{id}/slots/{slot}/vote", s.member(s.formVote))
 	s.mux.HandleFunc("POST /polls/{id}/leave", s.member(s.formLeave))
+
+	// Where to meet
+	s.mux.HandleFunc("GET /polls/{id}/places", s.member(s.placesPoll(s.search)))
+	s.mux.HandleFunc("POST /polls/{id}/start", s.member(s.placesPoll(s.formStart)))
+	s.mux.HandleFunc("POST /polls/{id}/start/mode", s.member(s.placesPoll(s.formMode)))
+	s.mux.HandleFunc("POST /polls/{id}/start/clear", s.member(s.placesPoll(s.formClearStart)))
+	s.mux.HandleFunc("POST /polls/{id}/venues/suggest", s.member(s.placesPoll(s.formSuggest)))
+	s.mux.HandleFunc("POST /polls/{id}/venues/{venue}/vote", s.member(s.placesPoll(s.formVenueVote)))
+	s.mux.HandleFunc("POST /polls/{id}/venues", s.organizer(s.placesPoll(s.formAddVenue)))
+	s.mux.HandleFunc("POST /polls/{id}/venues/{venue}/pick", s.organizer(s.placesPoll(s.formVenuePick)))
+	s.mux.HandleFunc("POST /polls/{id}/venues/{venue}/remove", s.organizer(s.placesPoll(s.formVenueRemove)))
 
 	// Organizers
 	s.mux.HandleFunc("POST /polls/{id}/rename", s.organizer(s.formRename))
@@ -548,7 +580,11 @@ func (s *Server) statusLine(p store.Poll) string {
 		slots, _ := s.store.Slots(p.ID)
 		for _, sl := range slots {
 			if sl.ID == p.ChosenSlot {
-				return "✅ " + store.Label(sl.Start)
+				line := "✅ " + store.Label(sl.Start)
+				if v := s.chosenVenue(p); v != nil {
+					line += " · " + v.Name
+				}
+				return line
 			}
 		}
 		return "✅ Decided"
@@ -800,7 +836,14 @@ type pageData struct {
 	// LastOrganizer is set when the user is the poll's only organizer, who
 	// cannot leave it.
 	LastOrganizer bool
-	Result        string // "Copy result" text
+	// Result is the decision as a message to send anywhere, and ResultBody
+	// the same without the link, for share links that add the link themselves.
+	Result, ResultBody string
+
+	// PlacesOn is whether this server can find places; Places is the poll's
+	// Where card, for a poll that finds one.
+	PlacesOn bool
+	Places   placesData
 }
 
 // group is a heading on the dashboard and the polls under it.
@@ -830,13 +873,14 @@ type slotView struct {
 // to be corrected.
 type newForm struct {
 	Title, Category, Deadline, Quorum string
+	Places                            bool
 	Slots                             []string
 }
 
 // basePage fills in what every page with the sidebar needs.
 func (s *Server) basePage(r *http.Request, u *store.User, view string) (pageData, error) {
 	now := s.now()
-	d := pageData{View: view, User: u, Path: r.URL.RequestURI(), Now: now, NowStamp: now.Format(store.Stamp)}
+	d := pageData{View: view, User: u, Path: r.URL.RequestURI(), Now: now, NowStamp: now.Format(store.Stamp), PlacesOn: s.finder != nil}
 	polls, err := s.store.Polls(u.ID)
 	if err != nil {
 		return d, err
@@ -911,7 +955,7 @@ func (s *Server) pageNew(w http.ResponseWriter, r *http.Request, u *store.User) 
 		s.fail(w, err)
 		return
 	}
-	d.Form = newForm{Category: "dinner", Slots: []string{"", "", ""}}
+	d.Form = newForm{Category: "dinner", Slots: []string{"", "", ""}, Places: s.finder != nil}
 	s.renderTmpl(w, http.StatusOK, "page.html", d)
 }
 
@@ -920,6 +964,7 @@ func (s *Server) formCreate(w http.ResponseWriter, r *http.Request, u *store.Use
 	form := newForm{
 		Title: r.FormValue("title"), Category: r.FormValue("category"),
 		Deadline: r.FormValue("deadline"), Quorum: strings.TrimSpace(r.FormValue("quorum")), Slots: r.Form["slot"],
+		Places: r.FormValue("places") == "on",
 	}
 	quorum := 0
 	bad := ""
@@ -934,7 +979,7 @@ func (s *Server) formCreate(w http.ResponseWriter, r *http.Request, u *store.Use
 		var err error
 		p, err = s.store.CreatePoll(u.ID, store.NewPoll{
 			Title: form.Title, Category: form.Category, Deadline: form.Deadline, Quorum: quorum,
-			Slots: form.Slots, Origin: baseURL(r),
+			Slots: form.Slots, Origin: baseURL(r), Places: form.Places && s.finder != nil,
 		}, s.now())
 		if errors.Is(err, store.ErrInvalid) {
 			bad = "Please give the poll a name, between one and " + strconv.Itoa(store.MaxSlots) +
@@ -1018,6 +1063,12 @@ func (s *Server) pagePoll(w http.ResponseWriter, r *http.Request, c pollCtx) {
 		s.fail(w, err)
 		return
 	}
+	if p.Places {
+		if d.Places, err = s.placesFor(p, c.User.ID); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
 	lead, hasLead := store.Leading(slots)
 	for _, sl := range slots {
 		row := slotRow{Slot: sl}
@@ -1040,9 +1091,9 @@ func (s *Server) pagePoll(w http.ResponseWriter, r *http.Request, c pollCtx) {
 		}
 		if d.Slots[i].Chosen {
 			d.Chosen = &d.Slots[i]
-			d.Result = "✅ " + p.Title + " is on: " + store.Label(d.Slots[i].Start) + " · " + d.InviteURL
 		}
 	}
+	d.Result, d.ResultBody = resultMessage(p, d.Chosen, d.Places.Chosen, d.InviteURL)
 	w.Header().Set("Cache-Control", "no-store")
 	s.renderTmpl(w, http.StatusOK, "page.html", d)
 }
@@ -1069,10 +1120,55 @@ func (s *Server) calendar(w http.ResponseWriter, r *http.Request, c pollCtx) {
 		}
 		w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="`+fileName(c.Poll.Title)+`.ics"`)
-		io.WriteString(w, icsEvent(c.Poll, sl, inviteURL(r, c.Poll), s.now()))
+		io.WriteString(w, icsEvent(c.Poll, sl, s.chosenVenue(c.Poll), inviteURL(r, c.Poll), s.now()))
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// resultMessage is a decision as a message to paste anywhere: a group chat
+// with no bot in it, an email, a text. It comes back whole, and without its
+// last line, the link to the poll.
+func resultMessage(p store.Poll, chosen *slotRow, venue *venueRow, invite string) (string, string) {
+	var lines []string
+	switch {
+	case p.IsConfirmed() && chosen != nil:
+		lines = append(lines, "✅ "+p.Title+" is on: "+store.Label(chosen.Start))
+		if venue != nil {
+			where := "📍 " + venue.Name
+			if venue.Address != "" {
+				where += ", " + venue.Address
+			}
+			lines = append(lines, where, "Map: "+venue.MapURL)
+		}
+	case p.IsCancelled():
+		reason := "nobody could make any of the times"
+		if p.Quorum > 0 {
+			reason = "not enough people could come"
+		}
+		lines = append(lines, "❌ "+p.Title+" is called off: "+reason+".")
+	default:
+		return "", ""
+	}
+	body := strings.Join(lines, "\n")
+	return body + "\nPoll: " + invite, body
+}
+
+// chosenVenue is the place a poll was decided for, if it has one.
+func (s *Server) chosenVenue(p store.Poll) *store.Venue {
+	if p.ChosenVenue == 0 {
+		return nil
+	}
+	venues, err := s.store.Venues(p.ID)
+	if err != nil {
+		return nil
+	}
+	for _, v := range venues {
+		if v.ID == p.ChosenVenue {
+			return &v
+		}
+	}
+	return nil
 }
 
 // fileName makes a title safe to offer as the name of a download.
@@ -1108,7 +1204,7 @@ func uidHost(origin string) string {
 
 // icsEvent writes one event. Its times are "floating", local wherever the
 // calendar is, which is what "Thursday at 19:30" means to the people going.
-func icsEvent(p store.Poll, sl store.Slot, link string, now time.Time) string {
+func icsEvent(p store.Poll, sl store.Slot, venue *store.Venue, link string, now time.Time) string {
 	start, _ := stampTime(sl.Start)
 	length := eventLength[p.Category]
 	if length == 0 {
@@ -1127,10 +1223,20 @@ func icsEvent(p store.Poll, sl store.Slot, link string, now time.Time) string {
 		"DTEND:" + start.Add(length).Format(floating),
 		"SUMMARY:" + icsText(p.Title),
 		"DESCRIPTION:" + icsText("Decided with Halfway: "+link),
-		"URL:" + link,
+	}
+	if venue != nil {
+		where := venue.Name
+		if venue.Address != "" {
+			where += ", " + venue.Address
+		}
+		lines = append(lines, "LOCATION:"+icsText(where),
+			"GEO:"+strconv.FormatFloat(venue.At.Lat, 'f', 5, 64)+";"+strconv.FormatFloat(venue.At.Lon, 'f', 5, 64))
+	}
+	lines = append(lines,
+		"URL:"+link,
 		"END:VEVENT",
 		"END:VCALENDAR",
-	}
+	)
 	return strings.Join(lines, "\r\n") + "\r\n"
 }
 

@@ -12,13 +12,18 @@ few times, send the link, and everyone says **Yes**, **If needed** or **No** to 
 the time most people said yes to. If no time gets there, it is called off, and nobody has to send the
 awkward "so... never mind".
 
+It can settle **where** too. Everyone says roughly where they are coming from, and Halfway suggests the
+places whose longest trip is shortest, rather than the middle of a map, which can as easily be a lake. Each
+place shows how long everyone takes to get there; people vote, and the decision names the place.
+
 There is no sign-up form, no password and no email. You type your name once, and every poll you open
 after that knows who you are.
 
 One binary serves everything, including its own CSS, JavaScript and fonts, so a page load reaches nothing
 but your own server: no CDN learns who is planning what with whom, and it works on a network with no way
-out. The one exception is Telegram, which nobody uses until whoever runs the server turns it on (see
-[Telling a group chat](#telling-a-group-chat)).
+out. The two exceptions are Telegram and finding places, neither of which does anything until whoever
+runs the server turns it on (see [Telling a group chat](#telling-a-group-chat) and
+[Where to meet](#where-to-meet)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/poll-dark.png">
@@ -27,11 +32,11 @@ out. The one exception is Telegram, which nobody uses until whoever runs the ser
 
 <table>
 <tr>
-<td width="68%"><img alt="A decided poll: the chosen time in large type, who can come, and buttons to add it to a calendar or copy the result" src="docs/decided-light.png"></td>
+<td width="68%"><img alt="A decided poll: the chosen time in large type, who can come, a button to add it to a calendar, and a ready-made message to copy or share" src="docs/decided-light.png"></td>
 <td width="32%"><img alt="Halfway on a phone, with a bottom tab bar" src="docs/mobile-dark.png"></td>
 </tr>
 <tr>
-<td><em>Decided: add it to your calendar, or copy the result into a chat</em></td>
+<td><em>Decided: add it to your calendar, and tell everyone</em></td>
 <td><em>On a phone</em></td>
 </tr>
 <tr>
@@ -45,6 +50,12 @@ out. The one exception is Telegram, which nobody uses until whoever runs the ser
 </tr>
 <tr>
 <td colspan="2"><em>An invite link, opened by somebody new: a name and they're in</em></td>
+</tr>
+<tr>
+<td colspan="2"><img alt="Where: your starting point and how you travel, and three suggested places, each with everyone's travel time, the longest picked out, and who would go" src="docs/where-light.png"></td>
+</tr>
+<tr>
+<td colspan="2"><em>Where: the places with the shortest longest trip, and everyone's time to each</em></td>
 </tr>
 </table>
 
@@ -143,9 +154,13 @@ font down to the icons the templates actually use (8KB rather than 844KB).
 - **The deadline.** Without a minimum, the deadline decides: the time with the most yeses, with if-neededs
   breaking a tie, and the earlier time after that. It is called off only if nobody can make any time. The
   server keeps deadlines by itself, every few seconds, whether or not anyone has the page open.
-- **Decided.** The poll page shows the time in large type with who can come, **Add to calendar** (a
-  `.ics` file to open in any calendar app) and **Copy result**, a line ready to paste into a chat. Nobody
-  can answer any more.
+- **Decided.** The poll page shows the time in large type with who can come, and **Add to calendar** (a
+  `.ics` file to open in any calendar app). Nobody can answer any more.
+- **Tell everyone.** Under the decision is a message ready to send: the time, the place with its address
+  and a map link, and the poll's link. Change it however you like, then **Copy message**, or send it with
+  **WhatsApp**, **Telegram** or **Email**, or **Share…** on a phone, which opens its own share menu. A poll
+  that was called off gets one too. Nothing is sent by Halfway itself: these hand the message to the app
+  you choose.
 - **Organizers overrule.** The ⋯ menu has **Decide now**, which decides as if the deadline had passed,
   and **Deadline and minimum**; lower the minimum and a time that has enough already puts it on. Once it
   is decided, **Pick this time** beside any other time moves it there, or puts on one that was called off.
@@ -197,6 +212,50 @@ leaks. If you expose the server beyond your own network, put it behind HTTPS so 
 protected. If you put it behind a reverse proxy, don't let the proxy buffer `/events` (the server sends
 `X-Accel-Buffering: no` for nginx).
 
+## Where to meet
+
+A poll can find a place as well as a time: tick **Also find a place halfway between everyone** when making
+it. It needs turning on for the server first (see below).
+
+- **Where from.** On the poll, everyone can say roughly where they are coming from: search for a
+  neighbourhood, street or station, or press **Use my location**. And how: **walk**, **bike**, **transit**
+  or **car**. It is optional; people who skip it are just not counted.
+- **Private.** Nobody sees where anyone else is coming from, only how long it takes them. The server
+  rounds every starting point to about 500 m before storing it, and deletes it a week after the event.
+- **Fair.** **Suggest places** looks for cafés, restaurants, bars or parks (by the poll's kind) around
+  everyone, and suggests the three whose **longest** trip is shortest, rather than the middle of the map.
+  Each shows everyone's time to it, the longest picked out, and the fairest is marked. **Suggest again**
+  looks again, keeping the places people voted for.
+- **Estimates.** Travel times are worked out from the distance and how someone travels, with allowances
+  for streets not being straight and for waiting at stops. They are good for telling a fair place from an
+  unfair one, so they are always "about"; they do not know timetables or traffic.
+- **Voting.** **I'd go** on any places you would be happy with. When the poll is decided, the place with
+  the most votes wins, the fairest breaking a tie. Organizers can **Add a place** of their own, **Settle
+  on** one before the decision, and **Meet here instead** after it, which connected chats are told about.
+- **Everywhere.** The decision names the place: on the poll, in the message to tell everyone, in the link
+  preview, in the calendar file (with its address), and in the Telegram message.
+
+**For whoever runs the server**: start it with `HALFWAY_PLACES=on`:
+
+```
+docker run ... -e HALFWAY_PLACES=on ghcr.io/redclif-unknow/halfway:latest
+```
+
+Searching and suggesting are done by this server, never by people's browsers, using OpenStreetMap's public
+[Nominatim](https://nominatim.org) (for searching) and [Overpass](https://overpass-api.de) (for places).
+Each is asked at most once a second, answers are kept for a day, and every request says it comes from
+Halfway, as their usage policies ask. What they learn is what was searched for and the rough area being
+looked in, not who asked.
+
+| Variable | |
+|---|---|
+| `HALFWAY_PLACES=on` | turn finding places on |
+| `HALFWAY_PLACES_CONTACT` | an email address or URL, sent with each request, for the services to reach you if they need to. Worth setting if many people use your server |
+| `HALFWAY_NOMINATIM_URL`, `HALFWAY_OVERPASS_URL` | your own instances instead of the public ones, if you run them |
+
+Place data is © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the
+Open Database Licence, and credited on every poll that shows it.
+
 ## Telling a group chat
 
 Halfway can post each decision into a **Telegram** group, so the group hears where it already talks. There
@@ -236,7 +295,7 @@ go test ./...
 Every push and pull request runs the same tests on GitHub, along with `gofmt`, `go vet`, a cross-compile of
 each released platform, and a build of the Docker image. CI also starts the built container, picks a name,
 makes a poll, opens it, and stops the container, so the image is known to work rather than merely to
-compile. The Telegram bot is tested against a stand-in for Telegram's Bot API.
+compile. The Telegram bot is tested against a stand-in for Telegram's Bot API, and finding places against stand-ins for\nNominatim and Overpass, so no test ever reaches the real services.
 
 The screenshots above are generated rather than taken by hand, so they can be redone whenever the UI changes:
 
@@ -244,7 +303,8 @@ The screenshots above are generated rather than taken by hand, so they can be re
 python tools/screenshots/shoot.py
 ```
 
-It starts a server on a spare port, fills it with a few friends planning a few things, photographs it with
+It starts a server on a spare port with a stand-in for OpenStreetMap, fills it with a few friends planning a
+few things, photographs it with
 headless Chrome and writes the PNGs into `docs/`, cleaning up after itself. It needs Go, Chrome and
 `python -m pip install websockets`.
 

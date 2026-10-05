@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS polls (
 	quorum         INTEGER NOT NULL DEFAULT 0, -- 0: no minimum
 	status         TEXT NOT NULL DEFAULT 'open',
 	chosen_slot    INTEGER,
+	places         INTEGER NOT NULL DEFAULT 0, -- whether it also finds a place to meet
+	chosen_venue   INTEGER,
 	decision_seq   INTEGER NOT NULL DEFAULT 0, -- goes up with every decision, for "new since you looked"
 	invite_code    TEXT NOT NULL UNIQUE,
 	invite_open    INTEGER NOT NULL DEFAULT 1,
@@ -68,6 +70,36 @@ CREATE TABLE IF NOT EXISTS polls (
 	deleted_at     TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS polls_due ON polls(status, deadline);
+-- Where people set off from, for polls that find a place. Rounded to about
+-- 500 m before it gets here, shown to nobody but its owner, and deleted a
+-- week after the event.
+CREATE TABLE IF NOT EXISTS starts (
+	poll_id    INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	lat        REAL NOT NULL,
+	lon        REAL NOT NULL,
+	label      TEXT NOT NULL DEFAULT '',
+	mode       TEXT NOT NULL DEFAULT 'transit',
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (poll_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS venues (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	poll_id    INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+	ref        TEXT,                           -- node/123 from OpenStreetMap; NULL for one somebody added
+	name       TEXT NOT NULL,
+	address    TEXT NOT NULL DEFAULT '',
+	lat        REAL NOT NULL,
+	lon        REAL NOT NULL,
+	added_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE (poll_id, ref)
+);
+CREATE TABLE IF NOT EXISTS venue_votes (
+	venue_id INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+	user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	PRIMARY KEY (venue_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS slots (
 	id      INTEGER PRIMARY KEY AUTOINCREMENT,
 	poll_id INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
@@ -137,11 +169,45 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.purgeTrash(); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+// migrate upgrades databases made by earlier versions: polls from v1.0 have
+// no columns for places, which CREATE TABLE IF NOT EXISTS does not add.
+func (s *Store) migrate() error {
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info('polls')`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	for _, col := range []struct{ name, def string }{
+		{"places", "INTEGER NOT NULL DEFAULT 0"},
+		{"chosen_venue", "INTEGER"},
+	} {
+		if !have[col.name] {
+			if _, err := s.db.Exec(`ALTER TABLE polls ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }

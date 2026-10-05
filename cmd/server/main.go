@@ -11,12 +11,14 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	// Time zones compiled in, so TZ=Europe/Berlin works in a container that
 	// has no zone files of its own. Every time on a poll is in this zone.
 	_ "time/tzdata"
 
+	"halfway/internal/places"
 	"halfway/internal/store"
 	"halfway/internal/telegram"
 	"halfway/internal/web"
@@ -50,7 +52,7 @@ func main() {
 	defer stop()
 
 	bot := startTelegram(ctx, s)
-	app := web.New(s, bot)
+	app := web.New(s, bot, startPlaces())
 	go app.Run(ctx)
 
 	srv := &http.Server{
@@ -97,6 +99,29 @@ func startTelegram(ctx context.Context, s *store.Store) *telegram.Bot {
 	log.Printf("telegram: on, as @%s", bot.Username)
 	go bot.Listen(ctx, s)
 	return bot
+}
+
+// startPlaces turns on finding places to meet when HALFWAY_PLACES is on, and
+// returns nil otherwise. Searches go from this server to OpenStreetMap's
+// Nominatim and Overpass (or the ones HALFWAY_NOMINATIM_URL and
+// HALFWAY_OVERPASS_URL name), never from people's browsers.
+func startPlaces() places.Finder {
+	switch strings.ToLower(os.Getenv("HALFWAY_PLACES")) {
+	case "on", "1", "true", "yes":
+	default:
+		log.Print("places: off (set HALFWAY_PLACES=on to suggest places to meet)")
+		return nil
+	}
+	nominatim, overpass := os.Getenv("HALFWAY_NOMINATIM_URL"), os.Getenv("HALFWAY_OVERPASS_URL")
+	finder := places.NewOSM(nominatim, overpass, os.Getenv("HALFWAY_PLACES_CONTACT"))
+	if nominatim == "" {
+		nominatim = places.DefaultNominatim
+	}
+	if overpass == "" {
+		overpass = places.DefaultOverpass
+	}
+	log.Printf("places: on, searching %s and %s", nominatim, overpass)
+	return finder
 }
 
 // describeDB says which database the server is using and what is in it.

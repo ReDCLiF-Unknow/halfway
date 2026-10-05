@@ -101,24 +101,52 @@ func (s *Store) decide(tx *sql.Tx, p Poll, now time.Time, force bool) (*Event, e
 	if status == StatusOpen {
 		return nil, nil
 	}
-	return s.settle(tx, p, status, slotID, slots)
+	return s.settle(tx, p, status, slotID, 0, slots)
 }
 
-// settle records a decision and the message that announces it.
-func (s *Store) settle(tx *sql.Tx, p Poll, status string, slotID int64, slots []Slot) (*Event, error) {
-	var chosen any
-	if slotID != 0 {
-		chosen = slotID
+// settle records a decision and the message that announces it. venueID is
+// the place, for a poll that finds one: 0 keeps the one chosen already, or
+// for a poll that has none yet, settles on the best of its places.
+func (s *Store) settle(tx *sql.Tx, p Poll, status string, slotID, venueID int64, slots []Slot) (*Event, error) {
+	if venueID == 0 {
+		venueID = p.ChosenVenue
 	}
-	if _, err := tx.Exec(`UPDATE polls SET status = ?, chosen_slot = ?, decision_seq = decision_seq + 1 WHERE id = ?`,
-		status, chosen, p.ID); err != nil {
+	if status == StatusConfirmed && p.Places && venueID == 0 {
+		venues, err := venuesOf(tx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		starts, err := startsOf(tx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		if v, ok := BestVenue(venues, starts); ok {
+			venueID = v.ID
+		}
+	}
+	var chosenSlot, chosenVenue any
+	if slotID != 0 {
+		chosenSlot = slotID
+	}
+	if venueID != 0 {
+		chosenVenue = venueID
+	}
+	if _, err := tx.Exec(`UPDATE polls SET status = ?, chosen_slot = ?, chosen_venue = ?, decision_seq = decision_seq + 1 WHERE id = ?`,
+		status, chosenSlot, chosenVenue, p.ID); err != nil {
 		return nil, err
 	}
 	kind := status
 	if p.IsConfirmed() && status == StatusConfirmed {
 		kind = KindChanged
 	}
-	ev := &Event{PollID: p.ID, Kind: kind, Text: message(p, kind, slotID, slots)}
+	venue := ""
+	if venueID != 0 && status == StatusConfirmed {
+		if err := tx.QueryRow(`SELECT name FROM venues WHERE id = ?`, venueID).Scan(&venue); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
+	moved := kind == KindChanged && slotID != p.ChosenSlot
+	ev := &Event{PollID: p.ID, Kind: kind, Text: message(p, kind, slotID, slots, venue, moved)}
 	res, err := tx.Exec(`INSERT INTO events (poll_id, kind, text) VALUES (?, ?, ?)`, ev.PollID, ev.Kind, ev.Text)
 	if err != nil {
 		return nil, err
@@ -127,8 +155,10 @@ func (s *Store) settle(tx *sql.Tx, p Poll, status string, slotID int64, slots []
 	return ev, nil
 }
 
-// message is what a chat is told about a decision.
-func message(p Poll, kind string, slotID int64, slots []Slot) string {
+// message is what a chat is told about a decision. venue is the place's
+// name, if it has one; moved says whether a change was to the time (rather
+// than only to the place).
+func message(p Poll, kind string, slotID int64, slots []Slot, venue string, moved bool) string {
 	when := ""
 	for _, s := range slots {
 		if s.ID == slotID {
@@ -139,11 +169,19 @@ func message(p Poll, kind string, slotID int64, slots []Slot) string {
 	if p.Origin != "" {
 		link = " · " + p.Origin + "/i/" + p.InviteCode
 	}
-	switch kind {
-	case KindConfirmed:
-		return "✅ " + p.Title + " is on: " + when + link
-	case KindChanged:
+	at := ""
+	if venue != "" {
+		at = " at " + venue
+	}
+	switch {
+	case kind == KindConfirmed:
+		return "✅ " + p.Title + " is on: " + when + at + link
+	case kind == KindChanged && moved && venue != "":
+		return "🔁 " + p.Title + " moved to " + when + ", same place" + link
+	case kind == KindChanged && moved:
 		return "🔁 " + p.Title + " moved to " + when + link
+	case kind == KindChanged:
+		return "🔁 " + p.Title + " is now" + at + ", same time" + link
 	}
 	if p.Quorum > 0 {
 		return "❌ " + p.Title + " didn't reach " + strconv.Itoa(p.Quorum) + " people and is cancelled"
@@ -253,7 +291,7 @@ func (s *Store) Pick(pollID, slotID int64) (*Event, error) {
 	if !found {
 		return nil, ErrNotFound
 	}
-	ev, err := s.settle(tx, p, StatusConfirmed, slotID, slots)
+	ev, err := s.settle(tx, p, StatusConfirmed, slotID, 0, slots)
 	if err != nil {
 		return nil, err
 	}

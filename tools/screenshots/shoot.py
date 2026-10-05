@@ -3,8 +3,8 @@
 
     python tools/screenshots/shoot.py
 
-It starts a Halfway server on a spare port with an empty database, fills it
-with a few friends planning a few things, drives headless Chrome over the
+It starts a Halfway server on a spare port with an empty database and a
+stand-in for OpenStreetMap, fills it with a few friends planning a few things, drives headless Chrome over the
 DevTools protocol, and writes the PNGs into docs/. Nothing it touches
 outlives the run: the database, the browser profile and both processes live
 in a temporary directory that is deleted at the end.
@@ -22,6 +22,8 @@ exactly, and Network.setCookie signs us in without the welcome form.
 import asyncio
 import base64
 import http.cookiejar
+import http.server
+import threading
 import json
 import os
 import re
@@ -54,7 +56,43 @@ SHOTS = [
     ("dashboard-dark.png", "/", 1280, 860, "dark", False, True),
     ("invite-light.png", "{invite}", 1280, 860, "light", False, False),
     ("mobile-dark.png", "{open}", 390, 844, "dark", True, True),
+    ("where-light.png", "{open}", 1280, 900, "light", False, True),
 ]
+
+# Shots that start scrolled to part of the page.
+SCROLL = {"where-light.png": "[data-live=places]"}
+
+# A stand-in for OpenStreetMap, so the screenshots never depend on (or
+# bother) the real services: a few made-up places around central Munich.
+FAKE_PLACES = [
+    ("node/1", "Brasserie am Markt", "Viktualienmarkt 3", 48.1351, 11.5763),
+    ("node/2", "Wirtshaus Westend", "Ganghoferstraße 12", 48.1352, 11.5390),
+    ("node/3", "Trattoria Isar", "Zweibrückenstraße 8", 48.1335, 11.5850),
+    ("node/4", "Bistro Maxvorstadt", "Türkenstraße 40", 48.1500, 11.5780),
+    ("node/5", "Gasthaus Sendling", "Plinganserstraße 5", 48.1210, 11.5480),
+]
+
+
+class FakeOSM(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):  # Nominatim search
+        self.reply([{"lat": "48.1374", "lon": "11.5755", "name": "Marienplatz", "display_name": "Marienplatz, München"}])
+
+    def do_POST(self):  # Overpass
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        self.reply({"elements": [{"type": r.split("/")[0], "id": int(r.split("/")[1]), "lat": lat, "lon": lon,
+                                  "tags": {"name": n, "addr:street": a.rsplit(" ", 1)[0], "addr:housenumber": a.rsplit(" ", 1)[1]}}
+                                 for r, n, a, lat, lon in FAKE_PLACES]})
+
+    def reply(self, data):
+        body = json.dumps(data).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
 
 CHROMES = [
     os.environ.get("CHROME"),
@@ -125,10 +163,10 @@ class Person:
         with self.web.open(self.base + path, data=data) as r:
             return r.geturl(), r.read().decode()
 
-    def create(self, title, category, slots, deadline="", quorum=""):
+    def create(self, title, category, slots, deadline="", quorum="", places=False):
         """Make a poll and return its id, invite path and time ids."""
         url, page = self.post("/polls", title=title, category=category, slot=slots,
-                              deadline=deadline, quorum=quorum)
+                              deadline=deadline, quorum=quorum, places="on" if places else "")
         pid = int(urllib.parse.urlparse(url).path.rsplit("/", 1)[1])
         invite = re.search(r"/i/[A-Za-z0-9_-]{16}", page).group(0)
         ids = list(dict.fromkeys(re.findall(rf"/polls/{pid}/slots/(\d+)/vote", page)))
@@ -160,11 +198,23 @@ def seed(base):
 
     # Open, with a minimum, and close to it: the one the screenshots are of.
     dinner, dinner_invite, (thu, fri, sat) = alex.create(
-        "Friday dinner", "dinner", [at(3, 19, 30), at(4, 19, 30), at(5, 19)], deadline=at(2, 18), quorum="4")
+        "Friday dinner", "dinner", [at(3, 19, 30), at(4, 19, 30), at(5, 19)], deadline=at(2, 18), quorum="4", places=True)
     everyone(dinner_invite, sam, priya, jonas, mia)
     for who, answers in ((alex, (YES, YES, NO)), (sam, (NO, YES, MAYBE)), (priya, (YES, MAYBE, YES)), (jonas, (YES, NO, YES))):
         for slot, a in zip((thu, fri, sat), answers):
             who.answer(dinner, slot, a)
+    # Where everyone is coming from (rounded by the server, shown to nobody),
+    # and the places Halfway suggests for them.
+    for who, lat, lon, label, mode in ((alex, 48.1636, 11.5868, "Schwabing, München", "transit"),
+                                       (sam, 48.1110, 11.5960, "Giesing", "bike"),
+                                       (priya, 48.1494, 11.4614, "Pasing", "transit"),
+                                       (jonas, 48.1290, 11.6010, "Haidhausen", "walk")):
+        who.post(f"/polls/{dinner}/start", lat=lat, lon=lon, label=label, mode=mode)
+    _, page = alex.post(f"/polls/{dinner}/venues/suggest")
+    venue_ids = list(dict.fromkeys(re.findall(rf"/polls/{dinner}/venues/(\d+)/vote", page)))
+    for who in (alex, priya):
+        who.post(f"/polls/{dinner}/venues/{venue_ids[0]}/vote")
+    sam.post(f"/polls/{dinner}/venues/{venue_ids[1]}/vote")
 
     # Decided: its quorum was reached.
     games, games_invite, (g1, g2) = sam.create(
@@ -244,6 +294,8 @@ async def capture(debug_port, base, token, paths):
             origin = base if signed_in else base.replace("localhost", "127.0.0.1")
             await cdp.send("Page.navigate", url=origin + path.format(**paths))
             await cdp.wait_for("Page.loadEventFired")
+            if name in SCROLL:
+                await cdp.send("Runtime.evaluate", expression=f"document.querySelector('{SCROLL[name]}').scrollIntoView()")
             await asyncio.sleep(1.5)  # let the fonts settle and the event stream open
             shot = await cdp.send("Page.captureScreenshot", format="png", captureBeyondViewport=False)
             (DOCS / name).write_bytes(base64.b64decode(shot["data"]))
@@ -257,10 +309,15 @@ def main():
     work = Path(tempfile.mkdtemp(prefix="halfway-shots-"))
     server = browser = None
     try:
+        osm = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeOSM)
+        threading.Thread(target=osm.serve_forever, daemon=True).start()
+        fake = f"http://127.0.0.1:{osm.server_address[1]}"
         print(f"starting a server on {port}")
         server = subprocess.Popen(
             ["go", "run", "./cmd/server", "-addr", f"localhost:{port}", "-db", str(work / "demo.db")],
-            cwd=REPO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            cwd=REPO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env={**os.environ, "HALFWAY_PLACES": "on", "HALFWAY_NOMINATIM_URL": fake,
+                 "HALFWAY_OVERPASS_URL": fake + "/interpreter", "TZ": os.environ.get("TZ", "Europe/Berlin")})
         wait_for(base + "/welcome", "the server")
 
         print("seeding the demo data")
