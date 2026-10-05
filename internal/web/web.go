@@ -388,6 +388,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /polls/{id}/chats/discord", s.organizer(s.formAddDiscord))
 	s.mux.HandleFunc("POST /polls/{id}/delete", s.organizer(s.formDelete))
 	s.mux.HandleFunc("POST /polls/{id}/restore", s.authed(s.formRestore))
+
+	// JSON API (used by the CLI)
+	s.apiRoutes()
 }
 
 // ---- identity ---------------------------------------------------------

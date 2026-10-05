@@ -47,6 +47,7 @@ jobs:
             export GOOS=${target%/*} GOARCH=${target#*/}
             echo "building $GOOS/$GOARCH"
             go build -o /dev/null ./cmd/server
+            go build -o /dev/null ./cmd/halfway
           done
 
   # Builds the image on every run so the Dockerfile cannot quietly rot, and

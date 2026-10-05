@@ -4,7 +4,8 @@
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 A poll that settles when friends meet, and then makes the decision for them: Go, SQLite, `html/template`,
-and the [Tabler](https://tabler.io) UI + Tabler Icons.
+and the [Tabler](https://tabler.io) UI + Tabler Icons. Includes a CLI (Cobra + Resty) that talks to the
+server's JSON API.
 
 Doodle-style polls tend to die because nobody wants to be the one who calls it. Halfway calls it. Offer a
 few times, send the link, and everyone says **Yes**, **If needed** or **No** to each. Give it a minimum
@@ -61,7 +62,7 @@ finding places, none of which sends anything until someone turns it on (see
 
 ## Install
 
-**Docker**: the image carries the server and nothing else is needed:
+**Docker**: the image carries the server and the CLI, and nothing else is needed:
 
 ```
 docker run -d --name halfway -p 8080:8080 -v halfway:/data -e TZ=Europe/Berlin ghcr.io/redclif-unknow/halfway:latest
@@ -75,7 +76,7 @@ deliberately. `:main` is built from the development branch and is not promised t
 
 **A prebuilt binary**: download the archive for your system from the
 [latest release](https://github.com/ReDCLiF-Unknow/halfway/releases/latest), unpack it, and run
-`halfway-server`. There is nothing to install alongside it: the database is a SQLite file created
+`halfway-server` (`halfway` beside it is the CLI). There is nothing to install alongside it: the database is a SQLite file created
 on first run.
 
 Either way, open <http://localhost:8080> and type your name.
@@ -307,6 +308,53 @@ pasted. Whoever runs the server can turn Discord off with `HALFWAY_DISCORD=off`.
 WhatsApp and Signal cannot be told: neither lets a bot post into an existing friends' group. Their groups
 see the result in the link preview, or on the poll page.
 
+## CLI
+
+```
+go build -o halfway ./cmd/halfway
+
+halfway register "Alex"        # pick a name; prints your sign-in key
+export HALFWAY_TOKEN=<key>     # PowerShell: $env:HALFWAY_TOKEN = "<key>"
+
+halfway new "Friday dinner" --kind dinner --min 4 \
+  --time "2026-10-09 19:30" --time "2026-10-10 19:30" --deadline "2026-10-08 18:00"
+halfway polls                  # every poll you are on, and where each stands
+halfway show 3                 # its times, numbered, who can come, and your answers
+halfway answer 3 2 yes         # time 2: yes (or maybe, or no)
+halfway join https://host/i/CODE
+halfway invite 3               # print the invite link (--organizer for the organizer link)
+halfway decide 3               # decide now, as if the deadline had passed (organizers)
+halfway pick 3 1               # make it time 1, whatever the answers say (organizers)
+halfway leave 3
+halfway rm 3                   # delete it for everyone (organizers)
+halfway restore 3              # undo that, within a day
+halfway whoami
+```
+
+Use `-s http://host:port` / `HALFWAY_SERVER` to pick the server (default `http://localhost:8080`) and
+`-t KEY` / `HALFWAY_TOKEN` for who you are. The key from the web profile works too, so the terminal and the
+browser are the same person.
+
+## JSON API
+
+Send `Authorization: Bearer <key>` to act as a person. A poll you are not on returns `404`, the same as one
+that does not exist. Times are written `YYYY-MM-DD HH:MM` (or with a `T`), in the server's time zone.
+
+| Method | Path | Body |
+|---|---|---|
+| POST | `/api/users` | `{"name": "..."}` → `{id, name, token}` |
+| GET | `/api/me` | |
+| GET | `/api/polls` | every poll you are on, with how many have answered, whether you have, and what it was decided for |
+| POST | `/api/polls` | `{"title": "...", "category": "dinner", "times": ["2026-10-09 19:30", ...], "deadline": "...", "quorum": 4, "places": true}`; only `title` and `times` are needed |
+| POST | `/api/join` | `{"link": "https://host/i/CODE"}`: an invite or organizer link, or just its code |
+| GET | `/api/polls/{id}` | the poll, its `times` (numbered from 1, each with its votes and `your_answer`), `people`, `invite_url`, `organizer_url` for organizers, and `venue` once one is chosen |
+| POST | `/api/polls/{id}/answers` | `{"time": 2, "answer": "yes"}`: the time's number (or `"time_id"`), and `yes`, `if-needed` (or `maybe`) or `no` |
+| POST | `/api/polls/{id}/leave` | |
+| POST | `/api/polls/{id}/decide` | organizers |
+| POST | `/api/polls/{id}/pick` | `{"time": 1}`; organizers |
+| DELETE | `/api/polls/{id}` | organizers; it can be restored for a day |
+| POST | `/api/polls/{id}/restore` | organizers, within a day of deleting it |
+
 ## Tests
 
 ```
@@ -316,7 +364,8 @@ go test ./...
 Every push and pull request runs the same tests on GitHub, along with `gofmt`, `go vet`, a cross-compile of
 each released platform, and a build of the Docker image. CI also starts the built container, picks a name,
 makes a poll, opens it, and stops the container, so the image is known to work rather than merely to
-compile. The Telegram bot is tested against a stand-in for Telegram's Bot API, and finding places against stand-ins for\nNominatim and Overpass, so no test ever reaches the real services.
+compile. The CLI is tested the way it is used: each command runs against a real server and its output is read
+back. The Telegram bot is tested against a stand-in for Telegram's Bot API, and finding places against stand-ins for\nNominatim and Overpass, so no test ever reaches the real services.
 
 The screenshots above are generated rather than taken by hand, so they can be redone whenever the UI changes:
 
@@ -333,7 +382,9 @@ headless Chrome and writes the PNGs into `docs/`, cleaning up after itself. It n
 
 [MIT](LICENSE): use it, change it, share it, sell it; just keep the copyright notice.
 
-It stands on other people's open source work: [Tabler](https://tabler.io) (MIT) and
-[modernc.org/sqlite](https://gitlab.com/cznic/sqlite) (BSD-3-Clause). Tabler's CSS and icons and the
+It stands on other people's open source work: [Tabler](https://tabler.io) and
+[Resty](https://github.com/go-resty/resty) (MIT), [Cobra](https://github.com/spf13/cobra) (Apache 2.0),
+[modernc.org/sqlite](https://gitlab.com/cznic/sqlite) and [rsc.io/qr](https://github.com/rsc/qr)
+(BSD-3-Clause). Tabler's CSS and icons and the
 [Inter](https://rsms.me/inter/) typeface (SIL Open Font License 1.1) are redistributed inside the binary;
 their licences sit beside them in [internal/web/static/vendor](internal/web/static/vendor).

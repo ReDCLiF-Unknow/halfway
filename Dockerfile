@@ -13,7 +13,8 @@ RUN go mod download
 COPY . .
 ARG TARGETOS TARGETARCH
 ENV CGO_ENABLED=0
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/halfway-server ./cmd/server
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/halfway-server ./cmd/server \
+ && GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/halfway ./cmd/halfway
 
 # Runtime: Alpine rather than scratch, so you can still `docker exec ... sh`
 # and look around when something misbehaves.
@@ -23,7 +24,7 @@ RUN adduser -D -u 10001 halfway \
  && mkdir -p /data \
  && chown halfway:halfway /data
 
-COPY --from=build /out/halfway-server /usr/local/bin/
+COPY --from=build /out/halfway-server /out/halfway /usr/local/bin/
 
 USER halfway
 WORKDIR /data
