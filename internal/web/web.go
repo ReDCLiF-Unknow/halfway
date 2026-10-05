@@ -65,6 +65,8 @@ var categories = map[string]category{
 	"drinks": {"Drinks", "beer", "yellow"},
 	"hike":   {"Hike", "trekking", "green"},
 	"other":  {"Meetup", "calendar-event", "blue"},
+	// Not a kind of poll: how a group looks where a poll would.
+	"group": {"Group", "users-group", "purple"},
 }
 
 // eventLength is how long each kind of meetup is put in a calendar for.
@@ -388,6 +390,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /polls/{id}/chats/discord", s.organizer(s.formAddDiscord))
 	s.mux.HandleFunc("POST /polls/{id}/delete", s.organizer(s.formDelete))
 	s.mux.HandleFunc("POST /polls/{id}/restore", s.authed(s.formRestore))
+
+	// Groups
+	s.groupRoutes()
 
 	// JSON API (used by the CLI)
 	s.apiRoutes()
@@ -876,6 +881,14 @@ type pageData struct {
 
 	// Devices is the other devices signed in as the user, for the profile.
 	Devices []store.Device
+
+	// MyGroups is every group the user is in, for the sidebar and the form.
+	MyGroups []store.Group
+	// Group and GroupPage are the group being shown; PollGroup is the group
+	// the poll being shown is for, if the user is in it.
+	Group     *store.Group
+	GroupPage groupData
+	PollGroup *store.Group
 }
 
 // group is a heading on the dashboard and the polls under it.
@@ -906,6 +919,7 @@ type slotView struct {
 type newForm struct {
 	Title, Category, Deadline, Quorum string
 	Places                            bool
+	Group                             int64
 	Slots                             []string
 }
 
@@ -919,6 +933,9 @@ func (s *Server) basePage(r *http.Request, u *store.User, view string) (pageData
 	}
 	d.Polls = polls
 	if d.Devices, err = s.store.Devices(u.ID); err != nil {
+		return d, err
+	}
+	if d.MyGroups, err = s.store.Groups(u.ID); err != nil {
 		return d, err
 	}
 	var waiting, open, coming, earlier []store.Summary
@@ -991,12 +1008,18 @@ func (s *Server) pageNew(w http.ResponseWriter, r *http.Request, u *store.User) 
 		return
 	}
 	d.Form = newForm{Category: "dinner", Slots: []string{"", "", ""}, Places: s.finder != nil}
+	// "New poll" on a group's page starts it for that group.
+	if g, err := strconv.ParseInt(r.URL.Query().Get("group"), 10, 64); err == nil {
+		d.Form.Group = g
+	}
 	s.renderTmpl(w, http.StatusOK, "page.html", d)
 }
 
 func (s *Server) formCreate(w http.ResponseWriter, r *http.Request, u *store.User) {
 	r.ParseForm()
+	group, _ := strconv.ParseInt(r.FormValue("group"), 10, 64)
 	form := newForm{
+		Group: group,
 		Title: r.FormValue("title"), Category: r.FormValue("category"),
 		Deadline: r.FormValue("deadline"), Quorum: strings.TrimSpace(r.FormValue("quorum")), Slots: r.Form["slot"],
 		Places: r.FormValue("places") == "on",
@@ -1014,9 +1037,11 @@ func (s *Server) formCreate(w http.ResponseWriter, r *http.Request, u *store.Use
 		var err error
 		p, err = s.store.CreatePoll(u.ID, store.NewPoll{
 			Title: form.Title, Category: form.Category, Deadline: form.Deadline, Quorum: quorum,
-			Slots: form.Slots, Origin: baseURL(r), Places: form.Places && s.finder != nil,
+			Slots: form.Slots, Origin: baseURL(r), Places: form.Places && s.finder != nil, GroupID: form.Group,
 		}, s.now())
-		if errors.Is(err, store.ErrInvalid) {
+		if errors.Is(err, store.ErrNotFound) {
+			bad = "You aren't in that group any more."
+		} else if errors.Is(err, store.ErrInvalid) {
 			bad = "Please give the poll a name, between one and " + strconv.Itoa(store.MaxSlots) +
 				" times that are still to come, and a deadline no later than the first of them."
 		} else if err != nil {
@@ -1097,6 +1122,11 @@ func (s *Server) pagePoll(w http.ResponseWriter, r *http.Request, c pollCtx) {
 	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	if p.GroupID != 0 {
+		if g, err := s.store.Group(p.GroupID, c.User.ID); err == nil {
+			d.PollGroup = &g
+		}
 	}
 	if p.Places {
 		if d.Places, err = s.placesFor(p, c.User.ID); err != nil {

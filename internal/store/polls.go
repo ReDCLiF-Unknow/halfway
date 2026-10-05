@@ -55,6 +55,8 @@ type Poll struct {
 	// ChosenVenue the place it settled on.
 	Places      bool  `json:"places"`
 	ChosenVenue int64 `json:"chosen_venue,omitempty"`
+	// GroupID is the group the poll is for, if any.
+	GroupID int64 `json:"group_id,omitempty"`
 }
 
 func (p Poll) IsOpen() bool      { return p.Status == StatusOpen }
@@ -105,6 +107,7 @@ type NewPoll struct {
 	Slots                     []string // Stamps
 	Origin                    string
 	Places                    bool
+	GroupID                   int64 // a group the creator is in, or 0
 }
 
 func parseStamp(s string) (time.Time, bool) {
@@ -208,14 +211,25 @@ func (s *Store) CreatePoll(userID int64, in NewPoll, now time.Time) (Poll, error
 	if err != nil {
 		return Poll{}, err
 	}
+	var group any
+	if in.GroupID != 0 {
+		var ok bool
+		if err := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?)`, in.GroupID, userID).Scan(&ok); err != nil {
+			return Poll{}, err
+		}
+		if !ok {
+			return Poll{}, ErrNotFound
+		}
+		group = in.GroupID
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Poll{}, err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`INSERT INTO polls (title, category, deadline, quorum, invite_code, organizer_code, chat_code, origin, created_by, places)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		title, cleanCategory(in.Category), deadline, quorum, newCode(), newCode(), newCode(), in.Origin, userID, in.Places)
+	res, err := tx.Exec(`INSERT INTO polls (title, category, deadline, quorum, invite_code, organizer_code, chat_code, origin, created_by, places, group_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		title, cleanCategory(in.Category), deadline, quorum, newCode(), newCode(), newCode(), in.Origin, userID, in.Places, group)
 	if err != nil {
 		return Poll{}, err
 	}
@@ -228,20 +242,32 @@ func (s *Store) CreatePoll(userID int64, in NewPoll, now time.Time) (Poll, error
 	if _, err := tx.Exec(`INSERT INTO participants (poll_id, user_id, organizer) VALUES (?, ?, 1)`, id, userID); err != nil {
 		return Poll{}, err
 	}
+	if group != nil {
+		// Everyone in the group is on it, its organizers organizing, and
+		// the chats the group told about polls hear about this one.
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO participants (poll_id, user_id, organizer)
+			SELECT ?, user_id, organizer FROM group_members WHERE group_id = ?`, id, group); err != nil {
+			return Poll{}, err
+		}
+		if _, err := tx.Exec(`INSERT INTO chats (poll_id, platform, target, title)
+			SELECT ?, platform, target, title FROM group_chats WHERE group_id = ?`, id, group); err != nil {
+			return Poll{}, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return Poll{}, err
 	}
-	s.changedUsers(userID)
+	s.changed(id)
 	return s.Poll(id)
 }
 
 const pollSelect = `SELECT id, title, category, deadline, quorum, status, COALESCE(chosen_slot, 0), decision_seq,
-	invite_code, invite_open, organizer_code, chat_code, origin, COALESCE(created_by, 0), places, COALESCE(chosen_venue, 0) FROM polls `
+	invite_code, invite_open, organizer_code, chat_code, origin, COALESCE(created_by, 0), places, COALESCE(chosen_venue, 0), COALESCE(group_id, 0) FROM polls `
 
 func scanPoll(row interface{ Scan(...any) error }) (Poll, error) {
 	var p Poll
 	err := row.Scan(&p.ID, &p.Title, &p.Category, &p.Deadline, &p.Quorum, &p.Status, &p.ChosenSlot, &p.DecisionSeq,
-		&p.InviteCode, &p.InviteOpen, &p.OrganizerCode, &p.ChatCode, &p.Origin, &p.CreatedBy, &p.Places, &p.ChosenVenue)
+		&p.InviteCode, &p.InviteOpen, &p.OrganizerCode, &p.ChatCode, &p.Origin, &p.CreatedBy, &p.Places, &p.ChosenVenue, &p.GroupID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, ErrNotFound
 	}
@@ -622,6 +648,8 @@ type Summary struct {
 	Unseen bool `json:"unseen"`
 	// Chosen is the time it was decided for; First and Last span its times.
 	Chosen string `json:"chosen,omitempty"`
+	// GroupName is the name of the group it is for, if any.
+	GroupName string `json:"group,omitempty"`
 	// Venue is the name of the place it was decided for, if it has one.
 	Venue string `json:"venue,omitempty"`
 	First string `json:"first"`
@@ -641,7 +669,8 @@ func (s Summary) Past(now string) bool {
 // decided ones by when they happen.
 func (s *Store) Polls(userID int64) ([]Summary, error) {
 	rows, err := s.db.Query(`SELECT p.id, p.title, p.category, p.deadline, p.quorum, p.status, COALESCE(p.chosen_slot, 0), p.decision_seq,
-			p.invite_code, p.invite_open, p.organizer_code, p.chat_code, p.origin, COALESCE(p.created_by, 0), p.places, COALESCE(p.chosen_venue, 0),
+			p.invite_code, p.invite_open, p.organizer_code, p.chat_code, p.origin, COALESCE(p.created_by, 0), p.places, COALESCE(p.chosen_venue, 0), COALESCE(p.group_id, 0),
+			COALESCE((SELECT name FROM groups WHERE id = p.group_id), ''),
 			pa.organizer, pa.seen_seq < p.decision_seq,
 			(SELECT COUNT(*) FROM participants WHERE poll_id = p.id),
 			(SELECT COUNT(DISTINCT v.user_id) FROM votes v JOIN slots s ON s.id = v.slot_id JOIN participants x ON x.poll_id = p.id AND x.user_id = v.user_id WHERE s.poll_id = p.id),
@@ -660,7 +689,7 @@ func (s *Store) Polls(userID int64) ([]Summary, error) {
 		var x Summary
 		p := &x.Poll
 		if err := rows.Scan(&p.ID, &p.Title, &p.Category, &p.Deadline, &p.Quorum, &p.Status, &p.ChosenSlot, &p.DecisionSeq,
-			&p.InviteCode, &p.InviteOpen, &p.OrganizerCode, &p.ChatCode, &p.Origin, &p.CreatedBy, &p.Places, &p.ChosenVenue,
+			&p.InviteCode, &p.InviteOpen, &p.OrganizerCode, &p.ChatCode, &p.Origin, &p.CreatedBy, &p.Places, &p.ChosenVenue, &p.GroupID, &x.GroupName,
 			&x.Organizer, &x.Unseen, &x.People, &x.Answered, &x.Mine, &x.Chosen, &x.Venue, &x.First, &x.Last); err != nil {
 			return nil, err
 		}

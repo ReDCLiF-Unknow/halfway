@@ -135,6 +135,16 @@ func (s *Store) settle(tx *sql.Tx, p Poll, status string, slotID, venueID int64,
 		status, chosenSlot, chosenVenue, p.ID); err != nil {
 		return nil, err
 	}
+	// The group's memory: how long everyone took to get there.
+	if p.Places {
+		kept := venueID
+		if status != StatusConfirmed {
+			kept = 0
+		}
+		if err := recordTrips(tx, p, kept); err != nil {
+			return nil, err
+		}
+	}
 	kind := status
 	if p.IsConfirmed() && status == StatusConfirmed {
 		kind = KindChanged
@@ -316,20 +326,31 @@ type Chat struct {
 	Broken bool `json:"broken"`
 }
 
-// LinkChat connects a chat to the poll whose connect code it was given, and
-// returns that poll. Connecting the same chat again mends it if it was broken.
-func (s *Store) LinkChat(code, platform, target, title string) (Poll, error) {
+// LinkChat connects a chat to the poll, or the group, whose connect code it
+// was given, and returns that poll's or group's name. Connecting the same
+// chat again mends it if it was broken.
+func (s *Store) LinkChat(code, platform, target, title string) (string, error) {
 	p, err := scanPoll(s.db.QueryRow(pollSelect+`WHERE chat_code = ? AND deleted_at IS NULL`, code))
+	if errors.Is(err, ErrNotFound) {
+		var group int64
+		var name string
+		if err := s.db.QueryRow(`SELECT id, name FROM groups WHERE chat_code = ?`, code).Scan(&group, &name); errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		} else if err != nil {
+			return "", err
+		}
+		return name, s.AddGroupChat(group, platform, target, title)
+	}
 	if err != nil {
-		return p, err
+		return "", err
 	}
 	if _, err := s.db.Exec(`INSERT INTO chats (poll_id, platform, target, title) VALUES (?, ?, ?, ?)
 		ON CONFLICT (poll_id, platform, target) DO UPDATE SET title = excluded.title, broken = 0`,
 		p.ID, platform, target, title); err != nil {
-		return p, err
+		return "", err
 	}
 	s.changed(p.ID)
-	return p, nil
+	return p.Title, nil
 }
 
 // AddChat connects a chat to a poll directly, as a pasted webhook does.

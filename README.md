@@ -15,7 +15,8 @@ awkward "so... never mind".
 
 It can settle **where** too. Everyone says roughly where they are coming from, and Halfway suggests the
 places whose longest trip is shortest, rather than the middle of a map, which can as easily be a lake. Each
-place shows how long everyone takes to get there; people vote, and the decision names the place.
+place shows how long everyone takes to get there; people vote, and the decision names the place. A group
+that meets every month remembers who travelled farthest last time, and takes turns.
 
 There is no sign-up form, no password and no email. You type your name once, and every poll you open
 after that knows who you are.
@@ -57,6 +58,12 @@ finding places, none of which sends anything until someone turns it on (see
 </tr>
 <tr>
 <td colspan="2"><em>Where: the places with the shortest longest trip, and everyone's time to each</em></td>
+</tr>
+<tr>
+<td colspan="2"><img alt="A group's page: its polls, and who has travelled more or less than their share over its meetups" src="docs/group-dark.png"></td>
+</tr>
+<tr>
+<td colspan="2"><em>A group: its polls, and who has travelled most, so it can take turns</em></td>
 </tr>
 </table>
 
@@ -261,6 +268,24 @@ looked in, not who asked.
 
 Place data is © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the
 Open Database Licence, and credited on every poll that shows it.
+
+## Groups
+
+For people who meet again and again (a dinner club, a team, a running group), make a **group** with the
+**+** next to Groups in the sidebar, and send its invite link instead of each poll's.
+
+- **Everyone, every time.** A poll made for the group (**New poll** on its page, or **Who's it for?** on the
+  form) takes in everyone in it, and somebody joining the group later is added to its polls still open. Its
+  organizers organize them all.
+- **One chat for all of them.** Connect a Telegram group or a Discord channel to the group, from its Invite
+  dialog, and every poll it makes tells that chat its decision, with nothing to set up each time.
+- **Taking turns.** When a group's poll is decided at a place, Halfway keeps how long everyone took to get
+  there: minutes only, never from where. The group's page shows who has travelled more than their share over
+  its last 10 meetups, and who less. Next time, the trips of whoever is ahead count for a little more, half of
+  what they are owed and never more than 15 minutes, so a place nearer them wins a close call, and over the
+  months it evens out. The poll's Where card says when that is happening.
+
+Deleting a group leaves its polls as they are, for the people on them.
 
 ## Telling a group chat
 

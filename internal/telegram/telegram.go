@@ -226,7 +226,7 @@ func (b *Bot) handle(ctx context.Context, s *store.Store, u update) {
 		reply("To connect this group to a poll, add me from the poll's Invite dialog on Halfway.")
 		return
 	}
-	p, err := s.LinkChat(code, Platform, target, m.Chat.Title)
+	name, err := s.LinkChat(code, Platform, target, m.Chat.Title)
 	if errors.Is(err, store.ErrNotFound) {
 		reply("That link isn't for any poll any more. Add me again from the poll's Invite dialog on Halfway.")
 		return
@@ -234,7 +234,7 @@ func (b *Bot) handle(ctx context.Context, s *store.Store, u update) {
 		log.Print(err)
 		return
 	}
-	reply("👋 This group is connected to “" + p.Title + "”. I'll post here once it's decided.")
+	reply("👋 This chat is connected to “" + name + "”. I'll post here when it's decided.")
 }
 
 // Deliver posts every decision still owed to a Telegram chat. A chat that

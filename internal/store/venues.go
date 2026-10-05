@@ -18,6 +18,9 @@ type Start struct {
 	At     places.Point
 	Label  string // what they searched for, or "Your location"
 	Mode   string
+	// Owed is how many minutes more than their share they have travelled
+	// to the group's earlier meetups, for a group poll.
+	Owed float64
 }
 
 // Venue is a place a poll could meet at, with who would go there.
@@ -106,14 +109,35 @@ func startsOf(q querier, pollID int64) ([]Start, error) {
 		}
 		out = append(out, st)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	// A group remembers who has travelled farthest before.
+	var group int64
+	if err := q.QueryRow(`SELECT COALESCE(group_id, 0) FROM polls WHERE id = ?`, pollID).Scan(&group); err != nil || group == 0 {
+		return out, nil
+	}
+	extra, _, _, err := sharesOf(q, group, pollID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Owed = extra[out[i].UserID]
+	}
+	return out, nil
+}
+
+// placesMinutes is how long st takes to get to v.
+func placesMinutes(st Start, v Venue) int {
+	return places.Minutes(st.Mode, places.Km(st.At, v.At))
 }
 
 // PlacesStarts turns starts into what the places package measures with.
 func PlacesStarts(starts []Start) []places.Start {
 	out := make([]places.Start, 0, len(starts))
 	for _, st := range starts {
-		out = append(out, places.Start{ID: st.UserID, Name: st.Name, At: st.At, Mode: st.Mode})
+		out = append(out, places.Start{ID: st.UserID, Name: st.Name, At: st.At, Mode: st.Mode, Owed: st.Owed})
 	}
 	return out
 }

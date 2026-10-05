@@ -83,7 +83,20 @@ type Start struct {
 	Name string
 	At   Point
 	Mode string
+	// Owed is how many minutes more than their share this person has
+	// travelled to their group's earlier meetups (less, if negative). Their
+	// trips count for more by half of that, up to MaxOwed, so the places a
+	// group meets at even out over time.
+	Owed float64
 }
+
+// MaxOwed is the most a person's past travelling changes how their trip
+// counts, in minutes either way: enough to tip a close call, never enough
+// to send everyone across town.
+const MaxOwed = 15
+
+// weight is how much longer (or shorter) a trip counts for someone owed.
+func (s Start) weight() float64 { return math.Max(-MaxOwed, math.Min(MaxOwed, s.Owed/2)) }
 
 // Trip is one person's estimated journey to a place.
 type Trip struct {
@@ -102,11 +115,14 @@ type Venue struct {
 }
 
 // Fairness is how a place treats everyone: each trip, the longest, and all
-// of them added up.
+// of them added up. Score and ScoreTotal are the same, with the trips of
+// people owed by their group counted for more; places are ranked by those.
 type Fairness struct {
-	Trips   []Trip
-	Longest int
-	Total   int
+	Trips      []Trip
+	Longest    int
+	Total      int
+	Score      float64
+	ScoreTotal float64
 }
 
 // Measure works out everyone's trip to at.
@@ -117,17 +133,20 @@ func Measure(at Point, starts []Start) Fairness {
 		f.Trips = append(f.Trips, t)
 		f.Longest = max(f.Longest, t.Minutes)
 		f.Total += t.Minutes
+		counted := float64(t.Minutes) + s.weight()
+		f.Score = math.Max(f.Score, counted)
+		f.ScoreTotal += counted
 	}
 	return f
 }
 
 // Fairer reports whether a treats people better than b: a shorter longest
-// trip, then less travelling overall.
+// trip, then less travelling overall, both counted with what people are owed.
 func Fairer(a, b Fairness) bool {
-	if a.Longest != b.Longest {
-		return a.Longest < b.Longest
+	if a.Score != b.Score {
+		return a.Score < b.Score
 	}
-	return a.Total < b.Total
+	return a.ScoreTotal < b.ScoreTotal
 }
 
 // Suggest picks the n fairest of the candidates for people setting off from

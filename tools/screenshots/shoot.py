@@ -57,6 +57,7 @@ SHOTS = [
     ("invite-light.png", "{invite}", 1280, 860, "light", False, False),
     ("mobile-dark.png", "{open}", 390, 844, "dark", True, True),
     ("where-light.png", "{open}", 1280, 900, "light", False, True),
+    ("group-dark.png", "{group}", 1280, 860, "dark", False, True),
 ]
 
 # Shots that start scrolled to part of the page.
@@ -163,10 +164,10 @@ class Person:
         with self.web.open(self.base + path, data=data) as r:
             return r.geturl(), r.read().decode()
 
-    def create(self, title, category, slots, deadline="", quorum="", places=False):
+    def create(self, title, category, slots, deadline="", quorum="", places=False, group=0):
         """Make a poll and return its id, invite path and time ids."""
         url, page = self.post("/polls", title=title, category=category, slot=slots,
-                              deadline=deadline, quorum=quorum, places="on" if places else "")
+                              deadline=deadline, quorum=quorum, places="on" if places else "", group=group)
         pid = int(urllib.parse.urlparse(url).path.rsplit("/", 1)[1])
         invite = re.search(r"/i/[A-Za-z0-9_-]{16}", page).group(0)
         ids = list(dict.fromkeys(re.findall(rf"/polls/{pid}/slots/(\d+)/vote", page)))
@@ -192,23 +193,37 @@ def seed(base):
     alex.post("/me/token/saved", next="/")
     sam, priya, jonas, mia = (Person(base, n) for n in ("Sam", "Priya", "Jonas", "Mia"))
 
+    # A group that meets every month, so its polls take in everyone.
+    url, page = alex.post("/groups", name="Dinner club")
+    group = int(urllib.parse.urlparse(url).path.rsplit("/", 1)[1])
+    group_invite = re.search(r"/g/[A-Za-z0-9_-]{16}", page).group(0)
+    for p in (sam, priya, jonas):
+        p.get(group_invite)
+    starting = ((alex, 48.1636, 11.5868, "Schwabing, München", "transit"),
+                (sam, 48.1110, 11.5960, "Giesing", "bike"),
+                (priya, 48.1494, 11.4614, "Pasing", "transit"),
+                (jonas, 48.1290, 11.6010, "Haidhausen", "walk"))
+    # Last month's dinner was in Schwabing, a long way for Priya; the club remembers.
+    last, _, (l1,) = alex.create("September dinner", "dinner", [at(1, 19)], places=True, group=group)
+    for who, lat, lon, label, mode in starting:
+        who.post(f"/polls/{last}/start", lat=lat, lon=lon, label=label, mode=mode)
+    alex.post(f"/polls/{last}/venues", lat=48.1636, lon=11.5868, label="Schwabinger Wirt, Leopoldstraße 50")
+    alex.post(f"/polls/{last}/slots/{l1}/pick")
+
     def everyone(invite, *people):
         for p in people:
             p.get(invite)
 
     # Open, with a minimum, and close to it: the one the screenshots are of.
     dinner, dinner_invite, (thu, fri, sat) = alex.create(
-        "Friday dinner", "dinner", [at(3, 19, 30), at(4, 19, 30), at(5, 19)], deadline=at(2, 18), quorum="4", places=True)
+        "Friday dinner", "dinner", [at(3, 19, 30), at(4, 19, 30), at(5, 19)], deadline=at(2, 18), quorum="4", places=True, group=group)
     everyone(dinner_invite, sam, priya, jonas, mia)
     for who, answers in ((alex, (YES, YES, NO)), (sam, (NO, YES, MAYBE)), (priya, (YES, MAYBE, YES)), (jonas, (YES, NO, YES))):
         for slot, a in zip((thu, fri, sat), answers):
             who.answer(dinner, slot, a)
     # Where everyone is coming from (rounded by the server, shown to nobody),
     # and the places Halfway suggests for them.
-    for who, lat, lon, label, mode in ((alex, 48.1636, 11.5868, "Schwabing, München", "transit"),
-                                       (sam, 48.1110, 11.5960, "Giesing", "bike"),
-                                       (priya, 48.1494, 11.4614, "Pasing", "transit"),
-                                       (jonas, 48.1290, 11.6010, "Haidhausen", "walk")):
+    for who, lat, lon, label, mode in starting:
         who.post(f"/polls/{dinner}/start", lat=lat, lon=lon, label=label, mode=mode)
     _, page = alex.post(f"/polls/{dinner}/venues/suggest")
     venue_ids = list(dict.fromkeys(re.findall(rf"/polls/{dinner}/venues/(\d+)/vote", page)))
@@ -239,7 +254,7 @@ def seed(base):
 
     # Alex has seen the board games decision except for the latest.
     alex.get(f"/polls/{hike}")
-    return alex.token, {"open": f"/polls/{dinner}", "decided": f"/polls/{games}", "invite": dinner_invite}
+    return alex.token, {"open": f"/polls/{dinner}", "decided": f"/polls/{games}", "invite": dinner_invite, "group": f"/groups/{group}"}
 
 
 def page_target(port):

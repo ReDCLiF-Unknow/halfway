@@ -141,6 +141,12 @@
     .trip-longest { color: var(--tblr-orange); font-weight: 600; }
     [data-results]:empty { display: none; }
     .share-text { font-size: .9rem; resize: vertical; }
+    /* Who has travelled most: a bar either side of a share that is fair */
+    .share-bar { position: relative; height: .3rem; border-radius: 999px; background: color-mix(in srgb, var(--tblr-body-color) 8%, transparent); }
+    .share-bar > div { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+    .share-bar .more { left: 50%; background: var(--tblr-orange); }
+    .share-bar .less { right: 50%; background: var(--tblr-green); }
+    .tabular { font-variant-numeric: tabular-nums; }
     .qr { width: 9.5rem; height: 9.5rem; flex-shrink: 0; border-radius: var(--tblr-border-radius); overflow: hidden; }
     .qr svg { width: 100%; height: 100%; display: block; }
     .how-step { display: flex; gap: .75rem; }
@@ -205,7 +211,7 @@
      tools/vendor/fetch.py and TestEveryIconIsVendored, which only read the
      templates: ti-coffee ti-tools-kitchen-2 ti-beer ti-trekking ti-calendar-event,
      the ways of travelling: ti-walk ti-bike ti-bus ti-car, and ones a template
-     puts together from parts: ti-sparkles ti-refresh ti-map-pin */}}
+     puts together from parts: ti-sparkles ti-refresh ti-map-pin, and the group look: ti-users-group */}}
 
 {{/* A date as a little calendar page. Argument: a Stamp. */}}
 {{define "datetile"}}<div class="date-tile" aria-hidden="true"><div class="dt-wd">{{weekday .}}</div><div class="dt-day">{{dayNum .}}</div><div class="dt-mon">{{month .}}</div></div>{{end}}
@@ -372,6 +378,7 @@
       <input type="hidden" name="lat"><input type="hidden" name="lon"><input type="hidden" name="label">
       <input type="hidden" name="mode" value="{{with .Places.Mine}}{{.Mode}}{{else}}transit{{end}}">
     </form>
+    {{with .Places.Rotation}}<div class="alert alert-azure py-2 mt-3 mb-0 small"><i class="ti ti-arrows-shuffle me-1"></i><strong>Taking turns.</strong> {{.}}</div>{{end}}
     <div class="small text-secondary mt-2">{{.Places.Starts}} of {{len .People}} {{if eq (len .People) 1}}has{{else}}have{{end}} said where they're coming from.</div>
   </div>
 

@@ -422,7 +422,7 @@ func TestChatsHearEachDecisionOnce(t *testing.T) {
 		t.Errorf("a made-up code linked a chat: %v", err)
 	}
 	got, err := s.LinkChat(p.ChatCode, "telegram", "-100", "Friends")
-	if err != nil || got.ID != p.ID {
+	if err != nil || got != p.Title {
 		t.Fatal(err)
 	}
 	s.LinkChat(p.ChatCode, "telegram", "-100", "Friends!") // twice is once

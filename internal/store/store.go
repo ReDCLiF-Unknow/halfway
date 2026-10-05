@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS polls (
 	chosen_slot    INTEGER,
 	places         INTEGER NOT NULL DEFAULT 0, -- whether it also finds a place to meet
 	chosen_venue   INTEGER,
+	group_id       INTEGER,                    -- the group it is for, if any
 	decision_seq   INTEGER NOT NULL DEFAULT 0, -- goes up with every decision, for "new since you looked"
 	invite_code    TEXT NOT NULL UNIQUE,
 	invite_open    INTEGER NOT NULL DEFAULT 1,
@@ -168,7 +169,7 @@ func Open(path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(conns)
 	s := &Store{db: db}
-	if _, err := db.Exec(schema + devicesSchema); err != nil {
+	if _, err := db.Exec(schema + devicesSchema + groupsSchema); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -203,6 +204,7 @@ func (s *Store) migrate() error {
 	for _, col := range []struct{ name, def string }{
 		{"places", "INTEGER NOT NULL DEFAULT 0"},
 		{"chosen_venue", "INTEGER"},
+		{"group_id", "INTEGER"},
 	} {
 		if !have[col.name] {
 			if _, err := s.db.Exec(`ALTER TABLE polls ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
@@ -210,7 +212,8 @@ func (s *Store) migrate() error {
 			}
 		}
 	}
-	return nil
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS polls_group ON polls(group_id)`)
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }

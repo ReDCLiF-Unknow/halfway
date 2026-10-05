@@ -38,6 +38,8 @@ type placesData struct {
 	Starts int // how many people have given one
 	Venues []venueRow
 	Chosen *venueRow
+	// Rotation explains how a group's memory is tipping the choice, if it is.
+	Rotation string
 }
 
 // placesFor works out the Where card for user on poll p.
@@ -58,6 +60,17 @@ func (s *Server) placesFor(p store.Poll, user int64) (placesData, error) {
 		}
 	}
 	ps := store.PlacesStarts(starts)
+	// Somebody who has travelled well over their share before counts for more.
+	var owed *store.Start
+	for i := range starts {
+		if starts[i].Owed >= 5 && (owed == nil || starts[i].Owed > owed.Owed) {
+			owed = &starts[i]
+		}
+	}
+	if owed != nil {
+		d.Rotation = owed.Name + " has travelled about " + strconv.Itoa(int(owed.Owed+0.5)) +
+			" minutes more than their share to this group's earlier meetups, so places easier for them count for a little more."
+	}
 	lead, hasLead := store.BestVenue(venues, starts)
 	fairest := -1
 	for i, v := range venues {
